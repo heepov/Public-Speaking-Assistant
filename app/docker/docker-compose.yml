@@ -1,0 +1,105 @@
+# Убираем устаревшую версию
+
+services:
+  # Основной контейнер - FastAPI + веб-интерфейс (легкий)
+  main-app:
+    build:
+      context: ../..
+      dockerfile: app/docker/Dockerfile
+    image: media-processor-main:latest
+    container_name: media-processor-main
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - LOG_LEVEL=INFO
+      - DOCKER_ENV=true
+    volumes:
+      - ../../uploads:/app/uploads
+      - ../../outputs:/app/outputs
+      - ../../logs:/app/logs
+    # Убираем зависимости - каждый сервис должен работать независимо
+    # depends_on:
+    #   video-converter:
+    #     condition: service_healthy
+    #   transcription-service:
+    #     condition: service_healthy
+    networks:
+      - media-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Контейнер для конвертации видео в аудио (используем существующий)
+  video-converter:
+    build:
+      context: ../..
+      dockerfile: app/features/video_to_audio/docker/Dockerfile
+    image: media-processor-converter:latest
+    container_name: media-processor-converter
+    ports:
+      - "8002:8002"
+    environment:
+      - LOG_LEVEL=INFO
+      - DOCKER_ENV=true
+      - PORT=8002
+    volumes:
+      - ../../uploads:/app/uploads
+      - ../../outputs:/app/outputs
+      - ../../logs:/app/logs
+    networks:
+      - media-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Контейнер для транскрипции (используем существующий)
+  transcription-service:
+    build:
+      context: ../..
+      dockerfile: app/features/transcription/docker/Dockerfile
+    image: media-processor-transcription:latest
+    container_name: media-processor-transcription
+    ports:
+      - "8001:8001"
+    environment:
+      - LOG_LEVEL=INFO
+      - DOCKER_ENV=true
+      - WHISPER_MODEL=base
+      - DEVICE=cpu
+      - PORT=8001
+    volumes:
+      - ../../uploads:/app/uploads
+      - ../../outputs:/app/outputs
+      - ../../logs:/app/logs
+      - whisper-models:/root/.cache/whisper
+    networks:
+      - media-network
+    restart: unless-stopped
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+networks:
+  media-network:
+    driver: bridge
+
+volumes:
+  whisper-models:
+    driver: local

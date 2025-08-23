@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ app_name }}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+
+
+        .upload-section {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 30px;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .upload-area {
+            border: 3px dashed #ddd;
+            border-radius: 15px;
+            padding: 50px 30px;
+            margin: 20px 0;
+            background: white;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #f0f8ff;
+        }
+
+        .upload-area.dragover {
+            border-color: #667eea;
+            background: #e3f2fd;
+            transform: scale(1.02);
+        }
+
+        .upload-icon {
+            font-size: 4em;
+            color: #667eea;
+            margin-bottom: 20px;
+        }
+
+        .upload-text {
+            font-size: 1.2em;
+            color: #666;
+            margin-bottom: 15px;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 25px;
+            font-size: 1.1em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 10px;
+            font-weight: 500;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .progress-section {
+            margin: 30px 0;
+            display: none;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 25px;
+            background: #e9ecef;
+            border-radius: 15px;
+            overflow: hidden;
+            margin: 15px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s ease;
+            width: 0%;
+            border-radius: 15px;
+        }
+
+        .progress-text {
+            font-size: 1.1em;
+            color: #333;
+            text-align: center;
+        }
+
+        .result-section {
+            margin: 30px 0;
+            display: none;
+        }
+
+        .result {
+            padding: 20px;
+            border-radius: 15px;
+            margin: 15px 0;
+        }
+
+        .result.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .result.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .logs-section {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+            margin: 20px 0;
+            display: none;
+        }
+
+        .logs-content {
+            background: #2d3748;
+            color: #e2e8f0;
+            border-radius: 10px;
+            padding: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            line-height: 1.4;
+        }
+
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px 0;
+            border-bottom: 1px solid #4a5568;
+        }
+
+        .log-timestamp {
+            color: #68d391;
+        }
+
+        .log-level {
+            font-weight: bold;
+        }
+
+        .log-level.INFO { color: #63b3ed; }
+        .log-level.WARNING { color: #f6ad55; }
+        .log-level.ERROR { color: #fc8181; }
+        .log-level.SUCCESS { color: #68d391; }
+
+        .supported-formats {
+            background: #e3f2fd;
+            border-radius: 15px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+
+        .formats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 15px;
+        }
+
+        .format-category {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+        }
+
+        .format-category h4 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .format-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+
+        .format-tag {
+            background: #667eea;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                margin: 10px;
+                border-radius: 15px;
+            }
+
+            .content {
+                padding: 20px;
+            }
+
+
+
+            .formats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 2em;
+            }
+        }
+
+        .file-info {
+            background: #e3f2fd;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 15px 0;
+            display: none;
+        }
+
+        .file-info h4 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .file-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+        }
+
+        .file-detail {
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .file-detail-label {
+            font-size: 0.8em;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .file-detail-value {
+            font-weight: 600;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Public Speaking Analysis</h1>
+            <p>Powerful tool for analyzing public speeches. Created by Gala Emets and Nikita Arkhipov</p>
+        </div>
+
+        <div class="content">
+            <!-- Supported Formats -->
+            <div class="supported-formats">
+                <h3>📁 Supported Formats</h3>
+                <div class="formats-grid">
+                    <div class="format-category">
+                        <h4>🎬 Video</h4>
+                        <div class="format-list">
+                            <span class="format-tag">MP4</span>
+                            <span class="format-tag">AVI</span>
+                            <span class="format-tag">MOV</span>
+                            <span class="format-tag">MKV</span>
+                            <span class="format-tag">WMV</span>
+                            <span class="format-tag">FLV</span>
+                            <span class="format-tag">WebM</span>
+                        </div>
+                    </div>
+                    <div class="format-category">
+                        <h4>🎵 Audio</h4>
+                        <div class="format-list">
+                            <span class="format-tag">MP3</span>
+                            <span class="format-tag">WAV</span>
+                            <span class="format-tag">FLAC</span>
+                            <span class="format-tag">M4A</span>
+                            <span class="format-tag">AAC</span>
+                            <span class="format-tag">OGG</span>
+                            <span class="format-tag">WMA</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- File Upload -->
+            <div class="upload-section">
+                <h3>📤 File Upload</h3>
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📁</div>
+                    <div class="upload-text">Drag and drop file here or click to select</div>
+                    <input type="file" id="fileInput" class="file-input" accept=".mp4,.avi,.mov,.mkv,.wmv,.flv,.webm,.mp3,.wav,.flac,.m4a,.aac,.ogg,.wma">
+                    <button class="btn" onclick="document.getElementById('fileInput').click()">
+                        Select File
+                    </button>
+                </div>
+
+                <!-- File Information -->
+                <div class="file-info" id="fileInfo">
+                    <h4>📄 File Information</h4>
+                    <div class="file-details" id="fileDetails">
+                        <!-- File details will be added dynamically -->
+                    </div>
+                </div>
+
+                <button class="btn" id="processBtn" onclick="processFile()" disabled>
+                    🚀 Start Processing
+                </button>
+            </div>
+
+            <!-- Progress -->
+            <div class="progress-section" id="progressSection">
+                <h3>⏳ Processing Progress</h3>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-text" id="progressText">Preparing...</div>
+            </div>
+
+            <!-- Result -->
+            <div class="result-section" id="resultSection">
+                <h3>✅ Result</h3>
+                <div class="result" id="result"></div>
+            </div>
+
+            <!-- Logs -->
+            <div class="logs-section" id="logsSection">
+                <h3>📊 Processing Logs</h3>
+                <div class="logs-content" id="logsContent">
+                    <!-- Logs will be added dynamically -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let selectedFile = null;
+        let taskId = null;
+
+        // Инициализация
+        document.addEventListener('DOMContentLoaded', function() {
+            setupEventListeners();
+        });
+
+        function setupEventListeners() {
+            // File selection
+            document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+
+            // Drag & Drop
+            const uploadArea = document.getElementById('uploadArea');
+            
+            uploadArea.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+            
+            uploadArea.addEventListener('dragleave', function(e) {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+            });
+            
+            uploadArea.addEventListener('drop', function(e) {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    handleFile(files[0]);
+                }
+            });
+
+            uploadArea.addEventListener('click', function(e) {
+                // Don't trigger if clicking on a button or input
+                if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') {
+                    return;
+                }
+                document.getElementById('fileInput').click();
+            });
+        }
+
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file) {
+                handleFile(file);
+            }
+        }
+
+        function handleFile(file) {
+            selectedFile = file;
+            updateFileInfo(file);
+            updateProcessButton();
+            updateUploadArea(file);
+        }
+
+        function updateFileInfo(file) {
+            const fileInfo = document.getElementById('fileInfo');
+            const fileDetails = document.getElementById('fileDetails');
+            
+            const fileSize = (file.size / (1024 * 1024)).toFixed(2);
+            const fileType = file.type || 'Unknown type';
+            const fileName = file.name;
+            
+            fileDetails.innerHTML = `
+                <div class="file-detail">
+                    <div class="file-detail-label">File Name</div>
+                    <div class="file-detail-value">${fileName}</div>
+                </div>
+                <div class="file-detail">
+                    <div class="file-detail-label">Size</div>
+                    <div class="file-detail-value">${fileSize} MB</div>
+                </div>
+                <div class="file-detail">
+                    <div class="file-detail-label">Type</div>
+                    <div class="file-detail-value">${fileType}</div>
+                </div>
+            `;
+            
+            fileInfo.style.display = 'block';
+        }
+
+        function updateUploadArea(file) {
+            const uploadArea = document.getElementById('uploadArea');
+            
+            // Clear existing content but preserve the file input
+            const fileInput = uploadArea.querySelector('.file-input');
+            uploadArea.innerHTML = `
+                <div class="upload-icon">✅</div>
+                <div class="upload-text">File selected: ${file.name}</div>
+                <button class="btn" id="selectAnotherBtn">
+                    Select Another File
+                </button>
+            `;
+            
+            // Re-add the file input if it was removed
+            if (!uploadArea.querySelector('.file-input')) {
+                uploadArea.appendChild(fileInput);
+            }
+            
+            // Re-attach event listeners
+            const selectAnotherBtn = uploadArea.querySelector('#selectAnotherBtn');
+            if (selectAnotherBtn) {
+                selectAnotherBtn.addEventListener('click', function(e) {
+                    e.stopPropagation(); // Prevent triggering uploadArea click
+                    document.getElementById('fileInput').click();
+                });
+            }
+        }
+
+        function updateProcessButton() {
+            const processBtn = document.getElementById('processBtn');
+            processBtn.disabled = !selectedFile;
+            processBtn.textContent = '🚀 Start Processing';
+        }
+
+        async function processFile() {
+            if (!selectedFile) return;
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            formData.append('feature', 'transcription'); 
+
+            // Show progress
+            showProgress();
+            hideResult();
+
+            try {
+                const response = await fetch('/process', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    taskId = result.task_id;
+                    updateProgress(0, 'File uploaded, starting processing...');
+                    pollTaskStatus();
+                } else {
+                    const error = await response.json();
+                    showResult('error', `Error: ${error.detail}`);
+                }
+            } catch (error) {
+                showResult('error', `Network error: ${error.message}`);
+            }
+        }
+
+        async function pollTaskStatus() {
+            if (!taskId) return;
+
+            try {
+                const response = await fetch(`/status/${taskId}`);
+                const status = await response.json();
+
+                updateProgress(status.progress, status.message);
+                
+                if (status.logs) {
+                    updateLogs(status.logs);
+                }
+
+                if (status.status === 'completed') {
+                    showResult('success', `
+                        ✅ Processing completed!<br><br>
+                        <a href="/download/${taskId}/simple" target="_blank" class="btn">📄 Download Simple Text</a>
+                        <a href="/download/${taskId}/detailed" target="_blank" class="btn">📊 Download Detailed Text</a>
+                    `);
+                    hideProgress();
+                } else if (status.status === 'failed') {
+                    showResult('error', `❌ Error: ${status.error}`);
+                    hideProgress();
+                } else {
+                    // Continue polling
+                    setTimeout(pollTaskStatus, 2000);
+                }
+            } catch (error) {
+                showResult('error', `Status retrieval error: ${error.message}`);
+            }
+        }
+
+        function updateProgress(progress, message) {
+            document.getElementById('progressFill').style.width = progress + '%';
+            document.getElementById('progressText').textContent = message;
+        }
+
+        function updateLogs(logs) {
+            const logsContent = document.getElementById('logsContent');
+            logsContent.innerHTML = logs.map(log => 
+                `<div class="log-entry">
+                    <span class="log-timestamp">[${log.timestamp}]</span>
+                    <span class="log-level ${log.level}">${log.level}</span>
+                    <span class="log-message">: ${log.message}</span>
+                </div>`
+            ).join('');
+            logsContent.scrollTop = logsContent.scrollHeight;
+        }
+
+        function showProgress() {
+            document.getElementById('progressSection').style.display = 'block';
+            document.getElementById('logsSection').style.display = 'block';
+        }
+
+        function hideProgress() {
+            document.getElementById('progressSection').style.display = 'none';
+        }
+
+        function showResult(type, message) {
+            const result = document.getElementById('result');
+            result.className = `result ${type}`;
+            result.innerHTML = message;
+            document.getElementById('resultSection').style.display = 'block';
+        }
+
+        function hideResult() {
+            document.getElementById('resultSection').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
