@@ -562,9 +562,10 @@
 
                 if (status.status === 'completed') {
                     showResult('success', `
-                        ✅ Processing completed!<br><br>
-                        <a href="/download/${taskId}/simple" target="_blank" class="btn">📄 Download Simple Text</a>
-                        <a href="/download/${taskId}/detailed" target="_blank" class="btn">📊 Download Detailed Text</a>
+                        <div style="text-align: center;">
+                            <a href="/download/${taskId}/simple" target="_blank" class="btn">📄 Download Simple Text</a>
+                            <a href="/download/${taskId}/detailed" target="_blank" class="btn">📊 Download Detailed Text</a>
+                        </div>
                     `);
                     hideProgress();
                 } else if (status.status === 'failed') {
