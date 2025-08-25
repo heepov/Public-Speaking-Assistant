@@ -1,35 +1,40 @@
-# Легкий образ для транскрипции
-FROM python:3.11-bullseye
+# GPU образ для транскрипции с CUDA
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
 
 # Метаданные
 LABEL maintainer="Media Processor Team"
-LABEL description="Lightweight transcription service with WhisperX"
+LABEL description="GPU transcription service with WhisperX and CUDA support"
 
-# Установка только необходимых системных зависимостей
+# Установка Python и системных зависимостей
 RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-dev \
     ffmpeg \
     libsndfile1 \
     curl \
     elfutils \
+    git \
     && rm -rf /var/lib/apt/lists/*
+
+# Создание символических ссылок для python
+RUN ln -s /usr/bin/python3 /usr/bin/python
 
 # Рабочая директория
 WORKDIR /app
 
-# Копирование только необходимых requirements
+# Копирование requirements
 COPY app/features/transcription/docker/requirements.txt .
 
-# Установка Python зависимостей с флагами для ctranslate2
-ENV CT2_CUDA=0
-ENV CT2_CPU_ONLY=1
+# Установка PyTorch с GPU поддержкой
+RUN pip3 install --no-cache-dir \
+    torch torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/cu121
 
-RUN pip install --no-cache-dir -r requirements.txt
+# Установка остальных зависимостей
+RUN pip3 install --no-cache-dir -r requirements.txt
 
-# CPU-версия ctranslate2 не требует execstack
-
-# FastAPI зависимости уже включены в requirements.txt
-
-# Копирование только необходимых файлов
+# Копирование файлов приложения
 COPY app/core/ ./app/core/
 COPY app/features/transcription/ ./app/features/transcription/
 COPY app/features/__init__.py ./app/features/
@@ -38,14 +43,12 @@ COPY app/__init__.py ./app/
 # Создание необходимых директорий
 RUN mkdir -p uploads outputs logs
 
-# Настройка переменных окружения для исправления проблем с ctranslate2
-ENV LD_LIBRARY_PATH=/usr/local/lib/python3.11/site-packages/ctranslate2
-ENV CT2_CUDA=0
-ENV CT2_CPU_ONLY=1
+# Настройка переменных окружения для GPU
 ENV PYTHONPATH=/app
+ENV CUDA_VISIBLE_DEVICES=0
 
 # Открытие порта для микросервиса
 EXPOSE 8001
 
 # Команда запуска микросервиса транскрипции
-CMD ["python", "-m", "app.features.transcription.microservice"]
+CMD ["python3", "-m", "app.features.transcription.microservice"]

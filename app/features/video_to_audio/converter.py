@@ -218,7 +218,10 @@ class VideoToAudioConverter:
         
         # Определяем выходной файл
         if output_path is None:
-            output_path = Path(tempfile.mktemp(suffix='.wav'))
+            # Создаем файл в папке outputs с уникальным именем
+            import uuid
+            unique_id = str(uuid.uuid4())[:8]
+            output_path = settings.OUTPUT_DIR / f"converted_audio_{unique_id}.wav"
         
         log("INFO", f"💾 Выходной файл: {output_path}")
         
@@ -348,14 +351,14 @@ class VideoToAudioConverter:
     
     def cleanup_temp_file(self, file_path: Path):
         """
-        Очистка временного файла
+        Очистка временного файла (отключено для сохранения файлов)
         
         Args:
             file_path: Путь к временному файлу
         """
         try:
-            if file_path.exists() and file_path.name.startswith('tmp'):
-                file_path.unlink()
-                logger.info(f"🗑️ Удален временный файл: {file_path.name}")
+            if file_path.exists():
+                logger.info(f"💾 Временный файл сохранен: {file_path.name}")
+                logger.info(f"📍 Путь к файлу: {file_path}")
         except Exception as e:
-            logger.warning(f"⚠️ Не удалось удалить временный файл {file_path}: {e}")
+            logger.warning(f"⚠️ Не удалось получить информацию о файле {file_path}: {e}")

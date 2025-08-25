@@ -198,6 +198,43 @@
             border-bottom: 1px solid #4a5568;
         }
 
+        .model-selection {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+
+        .model-info {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .model-select {
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            font-size: 1em;
+            background: white;
+            cursor: pointer;
+            transition: border-color 0.3s ease;
+        }
+
+        .model-select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .model-description {
+            font-size: 0.9em;
+            color: #666;
+            padding: 10px;
+            background: #e9ecef;
+            border-radius: 8px;
+            line-height: 1.4;
+        }
+
         .log-timestamp {
             color: #68d391;
         }
@@ -360,6 +397,24 @@
                     </button>
                 </div>
 
+                <!-- Model Selection -->
+                <div class="model-selection" id="modelSelection" style="display: none;">
+                    <h4>🤖 Whisper Model Selection</h4>
+                    <div class="model-info">
+                        <select id="modelSelect" class="model-select">
+                            <option value="base">Base - Баланс скорости и точности (74 MB)</option>
+                            <option value="tiny">Tiny - Быстрая, но менее точная (39 MB)</option>
+                            <option value="small">Small - Хорошая точность (244 MB)</option>
+                            <option value="medium">Medium - Высокая точность (769 MB)</option>
+                            <option value="large-v2">Large v2 - Максимальная точность (1550 MB)</option>
+                            <option value="large-v3">Large v3 - Новейшая модель (1550 MB)</option>
+                        </select>
+                        <div class="model-description" id="modelDescription">
+                            Баланс скорости и точности. Рекомендуется для большинства задач.
+                        </div>
+                    </div>
+                </div>
+
                 <!-- File Information -->
                 <div class="file-info" id="fileInfo">
                     <h4>📄 File Information</h4>
@@ -411,6 +466,9 @@
             // File selection
             document.getElementById('fileInput').addEventListener('change', handleFileSelect);
 
+            // Model selection
+            document.getElementById('modelSelect').addEventListener('change', updateModelDescription);
+
             // Drag & Drop
             const uploadArea = document.getElementById('uploadArea');
             
@@ -454,6 +512,10 @@
             updateFileInfo(file);
             updateProcessButton();
             updateUploadArea(file);
+            
+            // Показываем выбор модели для транскрипции
+            const modelSelection = document.getElementById('modelSelection');
+            modelSelection.style.display = 'block';
         }
 
         function updateFileInfo(file) {
@@ -516,12 +578,32 @@
             processBtn.textContent = '🚀 Start Processing';
         }
 
+        function updateModelDescription() {
+            const modelSelect = document.getElementById('modelSelect');
+            const modelDescription = document.getElementById('modelDescription');
+            
+            const descriptions = {
+                'tiny': 'Быстрая, но менее точная. Подходит для быстрой обработки больших объемов.',
+                'base': 'Баланс скорости и точности. Рекомендуется для большинства задач.',
+                'small': 'Хорошая точность. Подходит для качественной транскрипции.',
+                'medium': 'Высокая точность. Рекомендуется для важных задач.',
+                'large-v2': 'Максимальная точность. Лучшее качество транскрипции.',
+                'large-v3': 'Новейшая модель. Максимальная точность с улучшениями.'
+            };
+            
+            modelDescription.textContent = descriptions[modelSelect.value] || descriptions['base'];
+        }
+
         async function processFile() {
             if (!selectedFile) return;
 
             const formData = new FormData();
             formData.append('file', selectedFile);
             formData.append('feature', 'transcription'); 
+            
+            // Добавляем выбранную модель
+            const modelSelect = document.getElementById('modelSelect');
+            formData.append('model_size', modelSelect.value);
 
             // Show progress
             showProgress();

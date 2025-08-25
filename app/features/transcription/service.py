@@ -103,72 +103,72 @@ class TranscriptionService:
     
     def _setup_device(self):
         """Настройка устройства для вычислений"""
-        # Принудительно используем CPU для WhisperX
-        self.device = "cpu"
-        self.compute_type = "int8"
-        
-        # Отключаем CUDA для PyTorch
-        os.environ["CUDA_VISIBLE_DEVICES"] = ""
-        
+        # Автоматически определяем доступное устройство
         if torch.cuda.is_available():
+            self.device = "cuda"
+            self.compute_type = "float16"  # Оптимально для GPU
+            
             # Информация о GPU
             gpu_name = torch.cuda.get_device_name(0)
             gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
             
-            logger.info(f"ℹ️ GPU доступен: {gpu_name} ({gpu_memory:.1f} ГБ), но принудительно используется CPU")
+            logger.info(f"🚀 GPU доступен: {gpu_name} ({gpu_memory:.1f} ГБ)")
+            logger.info(f"🎯 Используем GPU для ускорения транскрипции")
             
             # Очищаем кэш GPU
             torch.cuda.empty_cache()
             
         else:
+            self.device = "cpu"
+            self.compute_type = "int8"  # Оптимально для CPU
             logger.info("ℹ️ CUDA недоступна, используется CPU")
         
         logger.info(f"🖥️ Устройство для транскрипции: {self.device.upper()}")
         logger.info(f"⚙️ Тип вычислений: {self.compute_type}")
     
     async def _load_whisper_model(self):
-        """Загрузка модели WhisperX на CPU"""
-        logger.info(f"📥 Загружаем модель Whisper на CPU: {self.model_size}")
+        """Загрузка модели WhisperX"""
+        logger.info(f"📥 Загружаем модель Whisper на {self.device.upper()}: {self.model_size}")
         
         try:
-            # Принудительно загружаем модель на CPU
+            # Загружаем модель на определенное устройство
             self.model = whisperx.load_model(
                 self.model_size,
-                device="cpu",  # Принудительно CPU
-                compute_type="int8",  # Оптимизация для CPU
+                device=self.device,  # Используем определенное устройство
+                compute_type=self.compute_type,  # Используем определенный тип вычислений
                 language=self.language
             )
             
-            logger.info(f"✅ Модель Whisper {self.model_size} загружена на CPU")
+            logger.info(f"✅ Модель Whisper {self.model_size} загружена на {self.device.upper()}")
             
         except Exception as e:
             logger.error(f"❌ Ошибка загрузки модели Whisper: {e}")
             raise RuntimeError(f"Не удалось загрузить модель Whisper: {e}")
     
     async def _load_alignment_model(self):
-        """Загрузка модели для выравнивания слов на CPU"""
-        logger.info("📥 Загружаем модель для выравнивания слов на CPU...")
+        """Загрузка модели для выравнивания слов"""
+        logger.info(f"📥 Загружаем модель для выравнивания слов на {self.device.upper()}...")
         
         try:
-            # Пробуем загрузить модель для русского языка на CPU
+            # Пробуем загрузить модель для русского языка
             self.align_model, metadata = whisperx.load_align_model(
                 language_code=self.language,
-                device="cpu"  # Принудительно CPU
+                device=self.device  # Используем определенное устройство
             )
             
-            logger.info("✅ Модель выравнивания загружена на CPU")
+            logger.info(f"✅ Модель выравнивания загружена на {self.device.upper()}")
             
         except Exception as e:
             logger.warning(f"⚠️ Не удалось загрузить модель выравнивания для русского языка: {e}")
             
             try:
-                # Пробуем загрузить универсальную модель на CPU
-                logger.info("🔄 Пробуем загрузить универсальную модель выравнивания на CPU...")
+                # Пробуем загрузить универсальную модель
+                logger.info(f"🔄 Пробуем загрузить универсальную модель выравнивания на {self.device.upper()}...")
                 self.align_model, metadata = whisperx.load_align_model(
                     language_code="en",  # Используем английскую модель как fallback
-                    device="cpu"  # Принудительно CPU
+                    device=self.device  # Используем определенное устройство
                 )
-                logger.info("✅ Универсальная модель выравнивания загружена на CPU")
+                logger.info(f"✅ Универсальная модель выравнивания загружена на {self.device.upper()}")
                 
             except Exception as e2:
                 logger.warning(f"⚠️ Не удалось загрузить универсальную модель выравнивания: {e2}")
@@ -330,7 +330,10 @@ class TranscriptionService:
             if file_extension.lower() in ['.mp4', '.avi', '.mov', '.mkv']:
                 log("INFO", "📹 Конвертируем видео в аудио...")
                 
-                temp_audio_path = Path(tempfile.mkstemp(suffix=".wav")[1])
+                # Создаем временный аудио файл в папке outputs
+                import uuid
+                unique_id = str(uuid.uuid4())[:8]
+                temp_audio_path = settings.OUTPUT_DIR / f"temp_audio_{unique_id}.wav"
                 if not self.convert_video_to_audio(file_path, temp_audio_path):
                     raise RuntimeError("Не удалось конвертировать видео в аудио.")
                 audio_file_path = temp_audio_path
@@ -371,7 +374,7 @@ class TranscriptionService:
                         self.align_model,
                         whisperx.utils.get_writer_output_format("json"),
                         audio,
-                        "cpu",  # Принудительно CPU
+                        self.device,  # Используем определенное устройство
                         return_char_alignments=False
                     )
                     
@@ -407,13 +410,9 @@ class TranscriptionService:
             raise RuntimeError(f"Ошибка транскрипции: {e}")
             
         finally:
-            # Очистка временных файлов
+            # Сохраняем временный аудио файл (не удаляем)
             if temp_audio_path and temp_audio_path.exists():
-                try:
-                    temp_audio_path.unlink()
-                    log("INFO", "🗑️ Временный аудио файл удален")
-                except Exception as e:
-                    log("WARNING", f"⚠️ Не удалось удалить временный файл: {e}")
+                log("INFO", f"💾 Временный аудио файл сохранен: {temp_audio_path}")
             
             # Очистка GPU памяти
             if self.device == "cuda":

@@ -101,7 +101,7 @@ async def check_microservices_health():
                 # Они могут запуститься позже
 
 
-async def call_transcription_service(file_path: Path, task_id: str) -> Dict[str, Any]:
+async def call_transcription_service(file_path: Path, task_id: str, model_size: str = "base") -> Dict[str, Any]:
     """Вызов микросервиса транскрипции"""
     
     transcription_url = f"{MICROSERVICES_CONFIG['transcription_service']['url']}/transcribe"
@@ -110,7 +110,7 @@ async def call_transcription_service(file_path: Path, task_id: str) -> Dict[str,
         async with httpx.AsyncClient(timeout=300.0) as client:  # 5 минут таймаут
             with open(file_path, 'rb') as f:
                 files = {'file': (file_path.name, f, 'application/octet-stream')}
-                data = {'task_id': task_id}
+                data = {'task_id': task_id, 'model_size': model_size}
                 
                 response = await client.post(transcription_url, files=files, data=data)
                 
@@ -176,6 +176,21 @@ async def call_video_converter_service(file_path: Path, task_id: str) -> Dict[st
         raise HTTPException(status_code=500, detail=f"Ошибка вызова микросервиса конвертации: {str(e)}")
 
 
+@app.get("/models")
+async def get_available_models():
+    """Получение списка доступных моделей"""
+    try:
+        models_url = f"{MICROSERVICES_CONFIG['transcription_service']['url']}/models"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(models_url)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                raise HTTPException(status_code=500, detail="Ошибка получения моделей")
+    except Exception as e:
+        logger.error(f"❌ Ошибка получения моделей: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка получения моделей: {str(e)}")
+
 @app.get("/", response_class=HTMLResponse)
 async def get_main_page():
     """Главная страница с выбором фич"""
@@ -201,7 +216,8 @@ async def get_main_page():
 async def process_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    feature: str = Form(...)
+    feature: str = Form(...),
+    model_size: str = Form("base")
 ):
     """
     Эндпоинт для обработки файла с выбором фичи
@@ -256,7 +272,8 @@ async def process_file(
                 process_transcription_task,
                 task_id,
                 file_path,
-                file_extension
+                file_extension,
+                model_size
             )
         elif feature == 'video-to-audio':
             background_tasks.add_task(
@@ -279,7 +296,7 @@ async def process_file(
         raise HTTPException(status_code=500, detail=f"Ошибка при загрузке файла: {str(e)}")
 
 
-async def process_transcription_task(task_id: str, file_path: Path, file_extension: str):
+async def process_transcription_task(task_id: str, file_path: Path, file_extension: str, model_size: str = "base"):
     """Фоновая обработка задачи транскрипции"""
     
     # Инициализация статуса задачи
@@ -311,8 +328,8 @@ async def process_transcription_task(task_id: str, file_path: Path, file_extensi
             "message": "Отправляем файл в микросервис транскрипции..."
         })
         
-        # Вызов микросервиса транскрипции
-        results = await call_transcription_service(file_path, task_id)
+                # Вызов микросервиса транскрипции
+        results = await call_transcription_service(file_path, task_id, model_size)
         
         add_log("INFO", "✅ Получен ответ от микросервиса транскрипции")
         

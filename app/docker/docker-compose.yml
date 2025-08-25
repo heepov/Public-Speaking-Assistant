@@ -16,6 +16,7 @@ services:
       - LOG_LEVEL=INFO
       - DOCKER_ENV=true
     volumes:
+      - ../../app:/app/app
       - ../../uploads:/app/uploads
       - ../../outputs:/app/outputs
       - ../../logs:/app/logs
@@ -49,6 +50,7 @@ services:
       - DOCKER_ENV=true
       - PORT=8002
     volumes:
+      - ../../app:/app/app
       - ../../uploads:/app/uploads
       - ../../outputs:/app/outputs
       - ../../logs:/app/logs
@@ -62,7 +64,7 @@ services:
       retries: 3
       start_period: 40s
 
-  # Контейнер для транскрипции (используем существующий)
+  # Контейнер для транскрипции с GPU поддержкой
   transcription-service:
     build:
       context: ../..
@@ -75,9 +77,10 @@ services:
       - LOG_LEVEL=INFO
       - DOCKER_ENV=true
       - WHISPER_MODEL=base
-      - DEVICE=cpu
       - PORT=8001
+      - CUDA_VISIBLE_DEVICES=0
     volumes:
+      - ../../app:/app/app
       - ../../uploads:/app/uploads
       - ../../outputs:/app/outputs
       - ../../logs:/app/logs
@@ -85,6 +88,13 @@ services:
     networks:
       - media-network
     restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     cap_add:
       - SYS_ADMIN
     security_opt:

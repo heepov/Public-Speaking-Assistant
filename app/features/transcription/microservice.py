@@ -56,7 +56,8 @@ async def startup_event():
 @app.post("/transcribe")
 async def transcribe_file(
     file: UploadFile = File(...),
-    task_id: str = Form(...)
+    task_id: str = Form(...),
+    model_size: str = Form("base")
 ):
     """
     Эндпоинт для транскрипции файла
@@ -90,6 +91,13 @@ async def transcribe_file(
         
         logger.info(f"💾 Файл сохранен: {file_path}")
         
+        # Установка модели если указана
+        if model_size != transcription_service.model_size:
+            logger.info(f"🔄 Смена модели с {transcription_service.model_size} на {model_size}")
+            transcription_service.model_size = model_size
+            # Переинициализируем сервис с новой моделью
+            await transcription_service.initialize()
+        
         # Выполнение транскрипции
         results = await transcription_service.transcribe_file(
             file_path=file_path,
@@ -99,13 +107,11 @@ async def transcribe_file(
             log_callback=lambda level, msg: logger.info(f"[{level}] {msg}")
         )
         
-        # Удаление временного файла
-        try:
-            if file_path.exists():
-                file_path.unlink()
-                logger.info("🗑️ Временный файл удален")
-        except Exception as e:
-            logger.warning(f"⚠️ Не удалось удалить временный файл: {e}")
+        # Сохраняем исходный файл (не удаляем)
+        logger.info(f"💾 Исходный файл сохранен: {file_path}")
+        
+        # Также сохраняем информацию о результатах транскрипции
+        logger.info(f"📝 Результаты транскрипции сохранены для task_id: {task_id}")
         
         return JSONResponse(results)
         
@@ -122,6 +128,19 @@ async def health_check():
         "service": "transcription",
         "timestamp": datetime.now().isoformat()
     }
+
+@app.get("/models")
+async def get_available_models():
+    """Получение списка доступных моделей"""
+    models = [
+        {"id": "tiny", "name": "Tiny", "description": "Быстрая, но менее точная", "size": "39 MB"},
+        {"id": "base", "name": "Base", "description": "Баланс скорости и точности", "size": "74 MB"},
+        {"id": "small", "name": "Small", "description": "Хорошая точность", "size": "244 MB"},
+        {"id": "medium", "name": "Medium", "description": "Высокая точность", "size": "769 MB"},
+        {"id": "large-v2", "name": "Large v2", "description": "Максимальная точность", "size": "1550 MB"},
+        {"id": "large-v3", "name": "Large v3", "description": "Новейшая модель", "size": "1550 MB"}
+    ]
+    return {"models": models}
 
 
 if __name__ == "__main__":

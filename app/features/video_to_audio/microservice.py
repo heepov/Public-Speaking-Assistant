@@ -103,13 +103,11 @@ async def convert_video_to_audio(
             log_callback=lambda level, msg: logger.info(f"[{level}] {msg}")
         )
         
-        # Удаление временного файла
-        try:
-            if file_path.exists():
-                file_path.unlink()
-                logger.info("🗑️ Временный файл удален")
-        except Exception as e:
-            logger.warning(f"⚠️ Не удалось удалить временный файл: {e}")
+        # Сохраняем исходный файл (не удаляем)
+        logger.info(f"💾 Исходный файл сохранен: {file_path}")
+        
+        # Также сохраняем информацию о созданном аудио файле
+        logger.info(f"🎵 Аудио файл сохранен: {audio_file}")
         
         return JSONResponse({
             "status": "completed",
