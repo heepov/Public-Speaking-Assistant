@@ -61,7 +61,9 @@ async def process_text(
     task_id: str = Form(...),
     instructions_file: Optional[UploadFile] = File(None),
     model_name: str = Form("llama2"),
-    use_openai: bool = Form(False)
+    use_openai: bool = Form(False),
+    system_prompt: Optional[str] = Form(None),
+    model_params: Optional[str] = Form(None)
 ):
     """
     Обработка текста с помощью Ollama или OpenAI
@@ -97,6 +99,15 @@ async def process_text(
         else:
             instructions_path = None
         
+        # Парсим параметры модели
+        parsed_model_params = None
+        if model_params:
+            try:
+                parsed_model_params = json.loads(model_params)
+                logger.info(f"🔧 Получены параметры модели: {parsed_model_params}")
+            except json.JSONDecodeError as e:
+                logger.warning(f"⚠️ Не удалось распарсить параметры модели: {e}")
+        
         # Обрабатываем текст
         result = await ollama_service.process_text(
             prompt=prompt,
@@ -104,7 +115,9 @@ async def process_text(
             instructions_file=instructions_path,
             task_id=task_id,
             model_name=model_name,
-            use_openai=use_openai
+            use_openai=use_openai,
+            system_prompt=system_prompt,
+            model_params=parsed_model_params
         )
         
         # Очищаем временные файлы
@@ -153,7 +166,9 @@ async def process_json_data(
     task_id: str = Form(...),
     instructions_file: Optional[UploadFile] = File(None),
     model_name: str = Form("llama2"),
-    use_openai: bool = Form(False)
+    use_openai: bool = Form(False),
+    system_prompt: Optional[str] = Form(None),
+    model_params: Optional[str] = Form(None)
 ):
     """
     Эндпоинт для обработки JSON данных напрямую
@@ -185,6 +200,15 @@ async def process_json_data(
             
             logger.info(f"📖 Файл с инструкциями сохранен: {instructions_path}")
         
+        # Парсим параметры модели
+        parsed_model_params = None
+        if model_params:
+            try:
+                parsed_model_params = json.loads(model_params)
+                logger.info(f"🔧 Получены параметры модели: {parsed_model_params}")
+            except json.JSONDecodeError as e:
+                logger.warning(f"⚠️ Не удалось распарсить параметры модели: {e}")
+        
         # Выполнение обработки
         results = await ollama_service.process_text(
             prompt=prompt,
@@ -192,7 +216,9 @@ async def process_json_data(
             instructions_file=str(instructions_path) if instructions_path else None,
             task_id=task_id,
             model_name=model_name,
-            use_openai=use_openai
+            use_openai=use_openai,
+            system_prompt=system_prompt,
+            model_params=parsed_model_params
         )
         
         logger.info(f"✅ Обработка JSON завершена для task_id: {task_id}")

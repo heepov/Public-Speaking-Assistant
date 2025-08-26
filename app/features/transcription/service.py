@@ -12,7 +12,7 @@ from typing import Optional, Callable, Dict, List, Any
 from datetime import datetime
 import tempfile
 import gc
-import subprocess
+import json
 
 from app.core.logger import setup_logger
 from app.core.config import settings
@@ -35,6 +35,9 @@ class TranscriptionService:
         self.model_size = "base"  # tiny, base, small, medium, large-v2, large-v3
         self.language = "ru"      # Русский язык
         
+        # Настройки кэширования моделей
+        self._setup_model_cache()
+        
         # Настройки обнаружения пауз
         self.pause_settings = {
             'min_pause_duration': 0.2,  # Минимальная длительность паузы (сек)
@@ -43,52 +46,28 @@ class TranscriptionService:
             'hop_length': 256          # Шаг между кадрами
         }
     
-    def convert_video_to_audio(self, video_path: Path, output_path: Path) -> bool:
-        """Конвертация видео в аудио с помощью ffmpeg"""
-        try:
-            logger.info(f"🎬 Конвертируем видео в аудио: {video_path}")
-            
-            # Команда ffmpeg для конвертации
-            cmd = [
-                'ffmpeg',
-                '-i', str(video_path),
-                '-vn',  # Без видео
-                '-acodec', 'pcm_s16le',  # Кодек аудио
-                '-ar', '16000',  # Частота дискретизации
-                '-ac', '1',  # Моно
-                '-y',  # Перезаписать файл
-                str(output_path)
-            ]
-            
-            # Выполняем команду
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=300  # 5 минут таймаут
-            )
-            
-            if result.returncode == 0:
-                logger.info(f"✅ Видео успешно конвертировано в аудио: {output_path}")
-                return True
-            else:
-                logger.error(f"❌ Ошибка конвертации видео: {result.stderr}")
-                return False
-                
-        except subprocess.TimeoutExpired:
-            logger.error("❌ Таймаут при конвертации видео")
-            return False
-        except Exception as e:
-            logger.error(f"❌ Ошибка при конвертации видео: {e}")
-            return False
-
-    def is_video_file(self, file_path: Path) -> bool:
-        """Проверка, является ли файл видео"""
-        return file_path.suffix.lower() in settings.VIDEO_FORMATS
+    def _setup_model_cache(self):
+        """Настройка кэширования моделей"""
+        # Проверяем переменные окружения для кэширования
+        cache_dir = os.getenv('WHISPERX_CACHE_DIR', '/app/app/features/transcription/models_cache')
+        hf_home = os.getenv('HF_HOME', '/app/app/features/transcription/models_cache')
+        transformers_cache = os.getenv('TRANSFORMERS_CACHE', '/app/app/features/transcription/models_cache')
+        
+        # Создаем директории кэша если они не существуют
+        for cache_path in [cache_dir, hf_home, transformers_cache]:
+            Path(cache_path).mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"📁 Model cache directory: {cache_dir}")
+        logger.info(f"📁 HuggingFace cache: {hf_home}")
+        logger.info(f"📁 Transformers cache: {transformers_cache}")
+    
+    def is_audio_file(self, file_path: Path) -> bool:
+        """Проверка, является ли файл аудио"""
+        return file_path.suffix.lower() in settings.SUPPORTED_AUDIO_FORMATS
     
     async def initialize(self):
         """Инициализация моделей и устройств"""
-        logger.info("🚀 Инициализация сервиса транскрипции...")
+        logger.info("🚀 Initializing transcription service...")
         
         # Определяем устройство и тип вычислений
         self._setup_device()
@@ -99,7 +78,7 @@ class TranscriptionService:
         # Загружаем модель для выравнивания
         await self._load_alignment_model()
         
-        logger.info("✅ Сервис транскрипции успешно инициализирован")
+        logger.info("✅ Transcription service successfully initialized")
     
     def _setup_device(self):
         """Настройка устройства для вычислений"""
@@ -112,8 +91,8 @@ class TranscriptionService:
             gpu_name = torch.cuda.get_device_name(0)
             gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
             
-            logger.info(f"🚀 GPU доступен: {gpu_name} ({gpu_memory:.1f} ГБ)")
-            logger.info(f"🎯 Используем GPU для ускорения транскрипции")
+            logger.info(f"🚀 GPU available: {gpu_name} ({gpu_memory:.1f} GB)")
+            logger.info(f"🎯 Using GPU for transcription acceleration")
             
             # Очищаем кэш GPU
             torch.cuda.empty_cache()
@@ -121,57 +100,68 @@ class TranscriptionService:
         else:
             self.device = "cpu"
             self.compute_type = "int8"  # Оптимально для CPU
-            logger.info("ℹ️ CUDA недоступна, используется CPU")
+            logger.info("ℹ️ CUDA not available, using CPU")
         
-        logger.info(f"🖥️ Устройство для транскрипции: {self.device.upper()}")
-        logger.info(f"⚙️ Тип вычислений: {self.compute_type}")
+        logger.info(f"🖥️ Transcription device: {self.device.upper()}")
+        logger.info(f"⚙️ Compute type: {self.compute_type}")
     
     async def _load_whisper_model(self):
         """Загрузка модели WhisperX"""
-        logger.info(f"📥 Загружаем модель Whisper на {self.device.upper()}: {self.model_size}")
+        logger.info(f"📥 Loading Whisper model on {self.device.upper()}: {self.model_size}")
         
         try:
-            # Загружаем модель на определенное устройство
+            # Получаем путь к кэшу моделей
+            cache_dir = os.getenv('WHISPERX_CACHE_DIR', '/app/app/features/transcription/models_cache')
+            
+            # Загружаем модель на определенное устройство с использованием кэша
             self.model = whisperx.load_model(
                 self.model_size,
                 device=self.device,  # Используем определенное устройство
                 compute_type=self.compute_type,  # Используем определенный тип вычислений
-                language=self.language
+                language=self.language,
+                download_root=cache_dir  # Используем кэш для загрузки
             )
             
-            logger.info(f"✅ Модель Whisper {self.model_size} загружена на {self.device.upper()}")
+            logger.info(f"✅ Whisper model {self.model_size} loaded on {self.device.upper()}")
+            logger.info(f"📁 Model cached in: {cache_dir}")
             
         except Exception as e:
-            logger.error(f"❌ Ошибка загрузки модели Whisper: {e}")
-            raise RuntimeError(f"Не удалось загрузить модель Whisper: {e}")
+            logger.error(f"❌ Error loading Whisper model: {e}")
+            raise RuntimeError(f"Failed to load Whisper model: {e}")
     
     async def _load_alignment_model(self):
         """Загрузка модели для выравнивания слов"""
-        logger.info(f"📥 Загружаем модель для выравнивания слов на {self.device.upper()}...")
+        logger.info(f"📥 Loading word alignment model on {self.device.upper()}...")
         
         try:
+            # Получаем путь к кэшу моделей
+            cache_dir = os.getenv('WHISPERX_CACHE_DIR', '/app/app/features/transcription/models_cache')
+            
             # Пробуем загрузить модель для русского языка
             self.align_model, metadata = whisperx.load_align_model(
                 language_code=self.language,
-                device=self.device  # Используем определенное устройство
+                device=self.device,  # Используем определенное устройство
+                cache_dir=cache_dir  # Используем кэш для загрузки
             )
             
-            logger.info(f"✅ Модель выравнивания загружена на {self.device.upper()}")
+            logger.info(f"✅ Alignment model loaded on {self.device.upper()}")
+            logger.info(f"📁 Alignment model cached in: {cache_dir}")
             
         except Exception as e:
-            logger.warning(f"⚠️ Не удалось загрузить модель выравнивания для русского языка: {e}")
+            logger.warning(f"⚠️ Failed to load alignment model for Russian: {e}")
             
             try:
                 # Пробуем загрузить универсальную модель
-                logger.info(f"🔄 Пробуем загрузить универсальную модель выравнивания на {self.device.upper()}...")
+                logger.info(f"🔄 Trying to load universal alignment model on {self.device.upper()}...")
                 self.align_model, metadata = whisperx.load_align_model(
                     language_code="en",  # Используем английскую модель как fallback
-                    device=self.device  # Используем определенное устройство
+                    device=self.device,  # Используем определенное устройство
+                    cache_dir=cache_dir  # Используем кэш для загрузки
                 )
-                logger.info(f"✅ Универсальная модель выравнивания загружена на {self.device.upper()}")
+                logger.info(f"✅ Universal alignment model loaded on {self.device.upper()}")
                 
             except Exception as e2:
-                logger.warning(f"⚠️ Не удалось загрузить универсальную модель выравнивания: {e2}")
+                logger.warning(f"⚠️ Failed to load universal alignment model: {e2}")
                 self.align_model = None
     
     def is_cuda_available(self) -> bool:
@@ -217,7 +207,7 @@ class TranscriptionService:
                 log_callback(level, message)
             logger.debug(message)
         
-        log("INFO", "🔍 Анализируем паузы в аудио...")
+        log("INFO", "🔍 Analyzing pauses in audio...")
         
         try:
             # Загружаем аудио
@@ -278,12 +268,12 @@ class TranscriptionService:
                         'duration': pause_duration
                     })
             
-            log("INFO", f"🔍 Обнаружено пауз: {len(pauses)}")
+            log("INFO", f"🔍 Detected pauses: {len(pauses)}")
             
             return pauses
             
         except Exception as e:
-            log("WARNING", f"⚠️ Ошибка при анализе пауз: {e}")
+            log("WARNING", f"⚠️ Error analyzing pauses: {e}")
             return []
     
     async def transcribe_file(
@@ -317,57 +307,50 @@ class TranscriptionService:
             if progress_callback:
                 progress_callback(percent, message)
         
-        log("INFO", f"🎤 Начинаем транскрипцию файла: {file_path.name}")
+        log("INFO", f"🎤 Starting file transcription: {file_path.name}")
         
         # Переменные для очистки
         audio_file_path = None
         temp_audio_path = None
         
         try:
-            update_progress(10, "Подготовка аудио...")
+            update_progress(10, "Preparing audio...")
             
             # Конвертируем в аудио если необходимо
             if file_extension.lower() in ['.mp4', '.avi', '.mov', '.mkv']:
-                log("INFO", "📹 Конвертируем видео в аудио...")
-                
-                # Создаем временный аудио файл в папке outputs
-                import uuid
-                unique_id = str(uuid.uuid4())[:8]
-                temp_audio_path = settings.OUTPUT_DIR / f"temp_audio_{unique_id}.wav"
-                if not self.convert_video_to_audio(file_path, temp_audio_path):
-                    raise RuntimeError("Не удалось конвертировать видео в аудио.")
-                audio_file_path = temp_audio_path
-                
+                log("INFO", "📹 Video file detected, but video conversion is not supported in this service.")
+                log("INFO", "Please use the video_to_audio service first to convert video to audio.")
+                raise RuntimeError("Video files are not supported. Please convert video to audio first using the video_to_audio service.")
             else:
-                log("INFO", "🎵 Используем исходный аудио файл")
+                log("INFO", "🎵 Using original audio file")
                 audio_file_path = file_path
             
-            update_progress(35, "Анализируем пауз...")
+            update_progress(35, "Analyzing pauses...")
             
             # Анализ пауз
             pauses = self._detect_pauses(audio_file_path, log_callback)
             
-            update_progress(40, "Загружаем аудио в Whisper...")
+            update_progress(40, "Loading audio into Whisper...")
             
             # Загружаем аудио для Whisper
             audio = whisperx.load_audio(str(audio_file_path))
             
-            update_progress(50, "Выполняем транскрипцию...")
+            update_progress(50, "Performing transcription...")
             
             # Основная транскрипция
-            log("INFO", f"🎯 Выполняем транскрипцию (модель: {self.model_size}, устройство: {self.device})")
+            log("INFO", f"🎯 Performing transcription (model: {self.model_size}, device: {self.device})")
             
             result = self.model.transcribe(
                 audio,
                 batch_size=16 if self.device == "cuda" else 4
             )
             
-            update_progress(75, "Выравниваем слова...")
+            update_progress(75, "Aligning words...")
             
             # Выравнивание слов (если модель доступна)
             if self.align_model is not None:
                 try:
-                    log("INFO", "🎯 Выравниваем слова по временным меткам...")
+                    log("INFO", "🎯 Aligning words with timestamps...")
                     
                     result = whisperx.align(
                         result["segments"],
@@ -378,18 +361,18 @@ class TranscriptionService:
                         return_char_alignments=False
                     )
                     
-                    log("INFO", "✅ Выравнивание слов завершено успешно")
+                    log("INFO", "✅ Word alignment completed successfully")
                     
                 except Exception as e:
-                    log("WARNING", f"⚠️ Ошибка выравнивания: {e}")
+                    log("WARNING", f"⚠️ Alignment error: {e}")
                     # Создаем простую разбивку по словам на основе сегментов
-                    log("INFO", "🔄 Создаем простую разбивку по словам...")
+                    log("INFO", "🔄 Creating simple word breakdown...")
                     result = self._create_simple_word_alignment(result)
             else:
-                log("INFO", "🔄 Модель выравнивания недоступна, создаем простую разбивку по словам...")
+                log("INFO", "🔄 Alignment model not available, creating simple word breakdown...")
                 result = self._create_simple_word_alignment(result)
             
-            update_progress(90, "Форматируем результат...")
+            update_progress(90, "Formatting result...")
             
             # Форматируем результат
             formatted_results = self._format_transcription_result(
@@ -399,25 +382,94 @@ class TranscriptionService:
                 task_id
             )
             
-            update_progress(100, "Транскрипция завершена!")
+            update_progress(100, "Transcription completed!")
             
-            log("INFO", "✅ Транскрипция успешно завершена")
+            log("INFO", "✅ Transcription completed successfully")
             
             return formatted_results
             
         except Exception as e:
-            log("ERROR", f"❌ Ошибка транскрипции: {e}")
-            raise RuntimeError(f"Ошибка транскрипции: {e}")
+            log("ERROR", f"❌ Transcription error: {e}")
+            raise RuntimeError(f"Transcription error: {e}")
             
         finally:
             # Сохраняем временный аудио файл (не удаляем)
             if temp_audio_path and temp_audio_path.exists():
-                log("INFO", f"💾 Временный аудио файл сохранен: {temp_audio_path}")
+                log("INFO", f"💾 Temporary audio file saved: {temp_audio_path}")
             
             # Очистка GPU памяти
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 gc.collect()
+    
+    async def transcribe_audio_file(
+        self,
+        audio_path: Path,
+        task_id: str
+    ) -> Dict[str, Any]:
+        """
+        Транскрибция аудио файла с сохранением результатов
+        
+        Args:
+            audio_path: Путь к аудио файлу
+            task_id: ID задачи
+            
+        Returns:
+            Результат транскрипции с информацией о сохраненных файлах
+        """
+        
+        logger.info(f"🎤 Starting audio transcription: {audio_path.name}")
+        
+        try:
+            # Получаем расширение файла
+            file_extension = audio_path.suffix.lower()
+            
+            # Выполняем транскрипцию
+            formatted_results = await self.transcribe_file(
+                file_path=audio_path,
+                file_extension=file_extension,
+                task_id=task_id
+            )
+            
+            # Сохраняем результаты в файлы
+            txt_filename = f"{task_id}_transcription.txt"
+            json_filename = f"{task_id}_transcription.json"
+            
+            txt_path = settings.OUTPUT_DIR / txt_filename
+            json_path = settings.OUTPUT_DIR / json_filename
+            
+            # Сохраняем простой текст
+            with open(txt_path, 'w', encoding='utf-8') as f:
+                f.write(formatted_results['simple_text'])
+            
+            # Сохраняем timeline результат в JSON
+            json_data = {
+                "timeline": formatted_results['timeline']
+            }
+            
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(json_data, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"💾 Transcription files saved: {txt_filename}, {json_filename}")
+            
+            # Возвращаем результат с информацией о файлах
+            return {
+                "status": "success",
+                "task_id": task_id,
+                "transcription": formatted_results['simple_text'],
+                "timeline": formatted_results['timeline'],
+                "saved_files": {
+                    "txt": txt_filename,
+                    "json": json_filename
+                },
+                "model_used": self.model_size,
+                "device_used": self.device,
+                "language": self.language
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Error in transcribe_audio_file: {e}")
+            raise RuntimeError(f"Transcription failed: {str(e)}")
     
     def _create_simple_word_alignment(self, result: Dict) -> Dict:
         """
@@ -487,7 +539,7 @@ class TranscriptionService:
         pauses: List[Dict],
         filename: str,
         task_id: str
-    ) -> Dict[str, str]:
+    ) -> Dict[str, Any]:
         """
         Форматирование результата транскрипции в два отдельных файла
         
@@ -498,109 +550,47 @@ class TranscriptionService:
             task_id: ID задачи
             
         Returns:
-            Словарь с двумя отформатированными текстами: 'simple_text' и 'detailed_text'
+            Словарь с простым текстом и timeline данными
         """
         
         segments = whisper_result.get("segments", [])
         
-        # 1. Простой текст (только полный текст)
-        simple_lines = []
-        simple_lines.append("ТРАНСКРИПЦИЯ ВИДЕО")
-        simple_lines.append("=" * 50)
-        simple_lines.append("")
-        
-        # Метаданные
-        simple_lines.append(f"Файл: {filename}")
-        simple_lines.append(f"Модель: {self.model_size}")
-        simple_lines.append(f"Устройство: {self.device}")
-        simple_lines.append(f"Язык: {self.language}")
-        simple_lines.append(f"Время обработки: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        simple_lines.append("")
-        
-        # Полный текст
-        simple_lines.append("ПОЛНЫЙ ТЕКСТ:")
-        simple_lines.append("-" * 20)
-        
+        # 1. Простой текст (только полный текст без заголовков)
         full_text = " ".join(
             segment.get('text', '').strip()
             for segment in segments
         ).strip()
         
-        simple_lines.append(full_text)
+        # 2. Timeline данные для JSON
+        timeline = []
         
-        # 2. Детальный текст (с временными метками и паузами)
-        detailed_lines = []
-        detailed_lines.append("ТРАНСКРИПЦИЯ ВИДЕО (ДЕТАЛЬНАЯ)")
-        detailed_lines.append("=" * 50)
-        detailed_lines.append("")
-        
-        # Метаданные
-        detailed_lines.append(f"Файл: {filename}")
-        detailed_lines.append(f"Модель: {self.model_size}")
-        detailed_lines.append(f"Устройство: {self.device}")
-        detailed_lines.append(f"Язык: {self.language}")
-        detailed_lines.append(f"Время обработки: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        detailed_lines.append(f"Обнаружено пауз: {len(pauses)}")
-        detailed_lines.append("")
-        
-        # Список пауз
-        if pauses:
-            detailed_lines.append("ОБНАРУЖЕННЫЕ ПАУЗЫ:")
-            detailed_lines.append("-" * 30)
+        # Добавляем слова с временными метками
+        for segment in segments:
+            words = segment.get('words', [])
             
-            for i, pause in enumerate(pauses, 1):
-                start_time = self._format_time(pause['start'])
-                end_time = self._format_time(pause['end'])
-                duration = pause['duration']
-                
-                detailed_lines.append(f"Пауза {i}: [{start_time} - {end_time}] (длительность: {duration:.2f}с)")
-            
-            detailed_lines.append("")
+            for word_info in words:
+                timeline.append({
+                    "type": "word",
+                    "text": word_info.get('word', '').strip(),
+                    "start": word_info.get('start', 0),
+                    "end": word_info.get('end', 0)
+                })
         
-        # Детальная разбивка по словам (если доступна)
-        has_word_timestamps = any(
-            'words' in segment and segment['words']
-            for segment in segments
-        )
+        # Добавляем паузы
+        for pause in pauses:
+            timeline.append({
+                "type": "pause",
+                "start": pause['start'],
+                "end": pause['end'],
+                "duration": pause['duration']
+            })
         
-        if has_word_timestamps:
-            detailed_lines.append("ДЕТАЛЬНАЯ РАЗБИВКА ПО СЛОВАМ:")
-            detailed_lines.append("-" * 40)
-            
-            for segment in segments:
-                words = segment.get('words', [])
-                
-                for word_info in words:
-                    start_time = self._format_time(word_info.get('start', 0))
-                    end_time = self._format_time(word_info.get('end', 0))
-                    word = word_info.get('word', '').strip()
-                    
-                    detailed_lines.append(f"  [{start_time} - {end_time}] {word}")
-            
-            detailed_lines.append("")
-        else:
-            # Если нет детальных временных меток слов, показываем сегменты
-            if segments:
-                detailed_lines.append("СЕГМЕНТЫ:")
-                detailed_lines.append("-" * 20)
-                
-                for segment in segments:
-                    start_time = self._format_time(segment.get('start', 0))
-                    end_time = self._format_time(segment.get('end', 0))
-                    text = segment.get('text', '').strip()
-                    
-                    detailed_lines.append(f"[{start_time} - {end_time}] {text}")
-                
-                detailed_lines.append("")
-        
-        # Полный текст в детальном файле тоже
-        detailed_lines.append("ПОЛНЫЙ ТЕКСТ:")
-        detailed_lines.append("-" * 20)
-        detailed_lines.append(full_text)
+        # Сортируем timeline по времени начала
+        timeline.sort(key=lambda x: x['start'])
         
         return {
-            'simple_text': "\n".join(simple_lines),
-            'detailed_text': "\n".join(detailed_lines)
+            'simple_text': full_text,
+            'timeline': timeline
         }
     
     def _format_time(self, seconds: float) -> str:

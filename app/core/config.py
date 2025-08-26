@@ -25,6 +25,12 @@ class Settings:
     OUTPUT_DIR: Path = BASE_DIR / "outputs"
     LOGS_DIR: Path = BASE_DIR / "logs"
     
+    # В Docker среде используем другие пути
+    if os.getenv("DOCKER_ENV", "false").lower() == "true":
+        UPLOAD_DIR: Path = Path("/app/uploads")
+        OUTPUT_DIR: Path = Path("/app/outputs")
+        LOGS_DIR: Path = Path("/app/logs")
+    
     # Настройки Docker
     DOCKER_ENV: bool = os.getenv("DOCKER_ENV", "false").lower() == "true"
     

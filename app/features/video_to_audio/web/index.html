@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тестирование сервиса конвертации видео в аудио</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .status.healthy {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.loading {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        input[type="file"], select, input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        input[type="file"]:focus, select:focus, input[type="number"]:focus {
+            border-color: #3498db;
+            outline: none;
+        }
+        button {
+            background-color: #e74c3c;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #c0392b;
+        }
+        button:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .progress {
+            width: 100%;
+            height: 20px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        .progress-bar {
+            height: 100%;
+            background-color: #e74c3c;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .info {
+            background-color: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            color: #0066cc;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .settings-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        .download-link {
+            display: inline-block;
+            background-color: #27ae60;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+        .download-link:hover {
+            background-color: #229954;
+        }
+        .file-info {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 Тестирование сервиса конвертации видео в аудио</h1>
+        
+        <div class="info">
+            <strong>Информация:</strong> Этот интерфейс предназначен для тестирования сервиса конвертации видео файлов в аудио. 
+            Поддерживаемые форматы видео: MP4, AVI, MOV, MKV, WMV, FLV, WebM.
+        </div>
+
+        <div id="status" class="status loading">
+            Проверка состояния сервиса...
+        </div>
+
+        <form id="convertForm">
+            <div class="form-group">
+                <label for="videoFile">Выберите видео файл:</label>
+                <input type="file" id="videoFile" accept=".mp4,.avi,.mov,.mkv,.wmv,.flv,.webm" required>
+                <div id="fileInfo" class="file-info" style="display: none;"></div>
+            </div>
+
+            <div class="settings-grid">
+                <div class="form-group">
+                    <label for="audioFormat">Формат аудио:</label>
+                    <select id="audioFormat">
+                        <option value="wav" selected>WAV (лучшее качество)</option>
+                        <option value="mp3">MP3 (сжатый)</option>
+                        <option value="m4a">M4A (AAC)</option>
+                        <option value="flac">FLAC (без потерь)</option>
+                        <option value="ogg">OGG (Vorbis)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="sampleRate">Частота дискретизации (Hz):</label>
+                    <select id="sampleRate">
+                        <option value="8000">8000 Hz</option>
+                        <option value="16000" selected>16000 Hz (оптимально для транскрипции)</option>
+                        <option value="22050">22050 Hz</option>
+                        <option value="44100">44100 Hz (CD качество)</option>
+                        <option value="48000">48000 Hz (профессиональное)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="channels">Количество каналов:</label>
+                    <select id="channels">
+                        <option value="1" selected>1 (моно - оптимально для транскрипции)</option>
+                        <option value="2">2 (стерео)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="bitrate">Битрейт (kbps):</label>
+                    <input type="number" id="bitrate" value="128" min="32" max="320" step="32">
+                </div>
+            </div>
+
+            <button type="submit" id="submitBtn" disabled>
+                Конвертировать видео в аудио
+            </button>
+        </form>
+
+        <div class="progress" id="progress" style="display: none;">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+
+        <div id="result" class="result" style="display: none;"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8003'; // Порт конвертации видео
+        let isProcessing = false;
+
+        // Проверка состояния сервиса при загрузке
+        async function checkHealth() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                
+                const statusDiv = document.getElementById('status');
+                const submitBtn = document.getElementById('submitBtn');
+                
+                if (data.status === 'healthy') {
+                    statusDiv.className = 'status healthy';
+                    statusDiv.innerHTML = `
+                        ✅ Сервис работает<br>
+                        FFmpeg: ${data.ffmpeg_status}<br>
+                        Путь к FFmpeg: ${data.ffmpeg_path}<br>
+                        Поддерживаемые форматы видео: ${data.supported_video_formats.join(', ')}
+                    `;
+                    submitBtn.disabled = false;
+                } else {
+                    statusDiv.className = 'status error';
+                    statusDiv.textContent = `❌ Ошибка: ${data.message}`;
+                    submitBtn.disabled = true;
+                }
+            } catch (error) {
+                const statusDiv = document.getElementById('status');
+                statusDiv.className = 'status error';
+                statusDiv.textContent = `❌ Не удалось подключиться к сервису: ${error.message}`;
+            }
+        }
+
+        // Отображение информации о файле
+        document.getElementById('videoFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            const fileInfo = document.getElementById('fileInfo');
+            
+            if (file) {
+                const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+                fileInfo.style.display = 'block';
+                fileInfo.innerHTML = `
+                    <strong>Выбранный файл:</strong> ${file.name}<br>
+                    <strong>Размер:</strong> ${sizeMB} MB<br>
+                    <strong>Тип:</strong> ${file.type || 'Неизвестный тип'}
+                `;
+            } else {
+                fileInfo.style.display = 'none';
+            }
+        });
+
+        // Обработка формы
+        document.getElementById('convertForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            if (isProcessing) return;
+            
+            const fileInput = document.getElementById('videoFile');
+            const audioFormat = document.getElementById('audioFormat').value;
+            const sampleRate = document.getElementById('sampleRate').value;
+            const channels = document.getElementById('channels').value;
+            const bitrate = document.getElementById('bitrate').value;
+            const submitBtn = document.getElementById('submitBtn');
+            const progress = document.getElementById('progress');
+            const progressBar = document.getElementById('progressBar');
+            const result = document.getElementById('result');
+            
+            if (!fileInput.files[0]) {
+                alert('Пожалуйста, выберите файл');
+                return;
+            }
+            
+            isProcessing = true;
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Конвертация...';
+            progress.style.display = 'block';
+            result.style.display = 'none';
+            
+            // Симуляция прогресса
+            let progressValue = 0;
+            const progressInterval = setInterval(() => {
+                progressValue += Math.random() * 8;
+                if (progressValue > 85) progressValue = 85;
+                progressBar.style.width = progressValue + '%';
+            }, 300);
+            
+            try {
+                const formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+                formData.append('task_id', 'test_' + Date.now());
+                formData.append('audio_format', audioFormat);
+                formData.append('sample_rate', sampleRate);
+                formData.append('channels', channels);
+                formData.append('bitrate', bitrate);
+                
+                const response = await fetch(`${API_BASE}/convert`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                clearInterval(progressInterval);
+                progressBar.style.width = '100%';
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    result.style.display = 'block';
+                    result.innerHTML = `
+=== РЕЗУЛЬТАТ КОНВЕРТАЦИИ ===
+
+Статус: ${data.status}
+Время обработки: ${data.processing_time || 'N/A'} сек
+Исходный файл: ${data.original_filename || 'N/A'}
+Результирующий файл: ${data.output_filename || 'N/A'}
+
+=== НАСТРОЙКИ КОНВЕРТАЦИИ ===
+Формат: ${audioFormat}
+Частота дискретизации: ${sampleRate} Hz
+Каналы: ${channels}
+Битрейт: ${bitrate} kbps
+
+=== ДЕТАЛИ ===
+${JSON.stringify(data, null, 2)}
+                    `;
+                    
+                                         // Добавляем ссылку для скачивания, если файл доступен
+                     const outputFile = data.output_file || data.output_filename;
+                     if (outputFile) {
+                         const downloadLink = document.createElement('a');
+                         downloadLink.href = `${API_BASE}/download/${outputFile}`;
+                         downloadLink.className = 'download-link';
+                         downloadLink.textContent = '📥 Скачать аудио файл';
+                         downloadLink.download = outputFile;
+                         downloadLink.target = '_blank';
+                         result.appendChild(downloadLink);
+                     }
+                    
+                } else {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || 'Ошибка конвертации');
+                }
+                
+            } catch (error) {
+                result.style.display = 'block';
+                result.innerHTML = `❌ Ошибка: ${error.message}`;
+            } finally {
+                isProcessing = false;
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Конвертировать видео в аудио';
+                progress.style.display = 'none';
+                progressBar.style.width = '0%';
+            }
+        });
+
+        // Проверка состояния при загрузке страницы
+        checkHealth();
+        
+        // Периодическая проверка состояния
+        setInterval(checkHealth, 30000);
+    </script>
+</body>
+</html>

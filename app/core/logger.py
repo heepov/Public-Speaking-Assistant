@@ -129,29 +129,31 @@ def setup_logger(name: str, level: int = logging.INFO) -> logging.Logger:
     logger.addHandler(console_handler)
     
     # === ФАЙЛОВОЕ ЛОГИРОВАНИЕ ===
-    # Общий лог файл
-    file_handler = logging.FileHandler(
-        settings.LOGS_DIR / f"app_{datetime.now().strftime('%Y%m%d')}.log",
-        encoding='utf-8'
-    )
-    file_handler.setLevel(logging.DEBUG)
-    
-    # JSON форматтер для файлов
-    json_formatter = jsonlogger.JsonFormatter(
-        '%(asctime)s %(name)s %(levelname)s %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    file_handler.setFormatter(json_formatter)
-    logger.addHandler(file_handler)
-    
-    # === ОБРАБОТЧИК ОШИБОК ===
-    error_handler = logging.FileHandler(
-        settings.LOGS_DIR / f"errors_{datetime.now().strftime('%Y%m%d')}.log",
-        encoding='utf-8'
-    )
-    error_handler.setLevel(logging.ERROR)
-    error_handler.setFormatter(json_formatter)
-    logger.addHandler(error_handler)
+    # В Docker среде не создаем файлы логов
+    if not settings.DOCKER_ENV:
+        # Общий лог файл
+        file_handler = logging.FileHandler(
+            settings.LOGS_DIR / f"app_{datetime.now().strftime('%Y%m%d')}.log",
+            encoding='utf-8'
+        )
+        file_handler.setLevel(logging.DEBUG)
+        
+        # JSON форматтер для файлов
+        json_formatter = jsonlogger.JsonFormatter(
+            '%(asctime)s %(name)s %(levelname)s %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        file_handler.setFormatter(json_formatter)
+        logger.addHandler(file_handler)
+        
+        # === ОБРАБОТЧИК ОШИБОК ===
+        error_handler = logging.FileHandler(
+            settings.LOGS_DIR / f"errors_{datetime.now().strftime('%Y%m%d')}.log",
+            encoding='utf-8'
+        )
+        error_handler.setLevel(logging.ERROR)
+        error_handler.setFormatter(json_formatter)
+        logger.addHandler(error_handler)
     
     # === КАСТОМНЫЙ ОБРАБОТЧИК ДЛЯ ВЕБ-ИНТЕРФЕЙСА ===
     transcription_log_handler.setLevel(logging.INFO)

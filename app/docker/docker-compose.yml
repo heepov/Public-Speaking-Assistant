@@ -36,7 +36,7 @@ services:
       retries: 3
       start_period: 30s
 
-  # Контейнер для конвертации видео в аудио (используем существующий)
+  # Контейнер для конвертации видео в аудио (легкий, без GPU)
   video-converter:
     build:
       context: ../..
@@ -49,6 +49,7 @@ services:
       - LOG_LEVEL=INFO
       - DOCKER_ENV=true
       - PORT=8002
+      - HOST=0.0.0.0
     volumes:
       - ../../app:/app/app
       - ../../uploads:/app/uploads
@@ -64,7 +65,7 @@ services:
       retries: 3
       start_period: 40s
 
-  # Контейнер для транскрипции с GPU поддержкой
+  # Контейнер для транскрипции с GPU поддержкой и кэшированием моделей
   transcription-service:
     build:
       context: ../..
@@ -78,13 +79,21 @@ services:
       - DOCKER_ENV=true
       - WHISPER_MODEL=base
       - PORT=8001
+      - HOST=0.0.0.0
       - CUDA_VISIBLE_DEVICES=0
+      # Настройки кэширования моделей
+      - HF_HOME=/app/app/features/transcription/models_cache
+      - TRANSFORMERS_CACHE=/app/app/features/transcription/models_cache
+      - WHISPERX_CACHE_DIR=/app/app/features/transcription/models_cache
+      - TORCH_HOME=/app/app/features/transcription/models_cache
+      - HF_DATASETS_CACHE=/app/app/features/transcription/models_cache
     volumes:
       - ../../app:/app/app
       - ../../uploads:/app/uploads
       - ../../outputs:/app/outputs
       - ../../logs:/app/logs
-      - whisper-models:/root/.cache/whisper
+      # Постоянное хранение моделей WhisperX между перезапусками
+      - whisper-models:/app/app/features/transcription/models_cache
     networks:
       - media-network
     restart: unless-stopped
@@ -146,6 +155,7 @@ services:
       - LOG_LEVEL=INFO
       - DOCKER_ENV=true
       - PORT=8004
+      - HOST=0.0.0.0
       - CUDA_VISIBLE_DEVICES=0
       - OLLAMA_HOST=ollama:11434
     volumes:
@@ -185,6 +195,7 @@ services:
       - LOG_LEVEL=INFO
       - DOCKER_ENV=true
       - PORT=8003
+      - HOST=0.0.0.0
       - CUDA_VISIBLE_DEVICES=0
       - LLAMA_CUBLAS=1
     volumes:
@@ -219,7 +230,9 @@ networks:
     driver: bridge
 
 volumes:
+  # Постоянное хранение моделей WhisperX
   whisper-models:
     driver: local
+  # Постоянное хранение моделей Ollama
   ollama-models:
     driver: local

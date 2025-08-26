@@ -132,6 +132,7 @@ dmypy.json
 uploads/
 outputs/
 logs/
+models_cache/
 *.wav
 *.mp3
 *.mp4

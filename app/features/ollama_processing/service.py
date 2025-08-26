@@ -132,7 +132,9 @@ class OllamaProcessingService:
         instructions_file: Optional[str] = None,
         task_id: str = "",
         model_name: str = None,
-        use_openai: bool = False
+        use_openai: bool = False,
+        system_prompt: Optional[str] = None,
+        model_params: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Обработка текста с помощью Ollama или OpenAI
@@ -144,6 +146,8 @@ class OllamaProcessingService:
             task_id: ID задачи
             model_name: Название модели Ollama
             use_openai: Использовать OpenAI вместо Ollama
+            system_prompt: Системный промпт (опционально, если не указан - создается автоматически)
+            model_params: Параметры модели (temperature, top_p, num_predict, repeat_penalty, presence_penalty и др.)
             
         Returns:
             Результат обработки
@@ -176,7 +180,8 @@ class OllamaProcessingService:
                 logger.info("📄 Входные данные не предоставлены, используется только промпт")
             
             # Формирование промпта для модели
-            system_prompt = self._create_system_prompt(instructions)
+            if system_prompt is None:
+                system_prompt = self._create_default_system_prompt(instructions)
             user_prompt = self._create_user_prompt(input_text, prompt)
             
             logger.info(f"💬 Размер системного промпта: {len(system_prompt)} символов")
@@ -186,13 +191,13 @@ class OllamaProcessingService:
             # Выбор модели
             if use_openai and self.openai_client:
                 logger.info("🤖 Использование OpenAI для обработки...")
-                result = await self._process_with_openai(system_prompt, user_prompt, task_id)
+                result = await self._process_with_openai(system_prompt, user_prompt, task_id, model_params)
                 model_used = "openai-gpt-3.5-turbo"
             else:
                 # Используем Ollama
                 model_to_use = model_name or self.default_model
                 logger.info(f"🤖 Использование Ollama модели: {model_to_use}")
-                result = await self._process_with_ollama(system_prompt, user_prompt, model_to_use, task_id)
+                result = await self._process_with_ollama(system_prompt, user_prompt, model_to_use, task_id, model_params)
                 model_used = model_to_use
             
             # Сохранение результата
@@ -215,7 +220,7 @@ class OllamaProcessingService:
             logger.error(f"❌ Ошибка при обработке текста: {e}")
             raise
     
-    async def _process_with_ollama(self, system_prompt: str, user_prompt: str, model_name: str, task_id: str) -> str:
+    async def _process_with_ollama(self, system_prompt: str, user_prompt: str, model_name: str, task_id: str, model_params: Optional[Dict[str, Any]] = None) -> str:
         """Обработка с помощью Ollama"""
         try:
             logger.info("🚀 Начинаем инференс с Ollama...")
@@ -241,6 +246,21 @@ class OllamaProcessingService:
             # Формируем полный промпт
             full_prompt = f"{system_prompt}\n\n{user_prompt}"
             
+            # Подготавливаем параметры модели
+            default_options = {
+                "temperature": 0.95,
+                "top_p": 0.9,
+                "num_predict": 800,
+                "repeat_penalty": 1.2,
+                "presence_penalty": 0.8
+            }
+            
+            if model_params:
+                default_options.update(model_params)
+                logger.info(f"🔧 Используются пользовательские параметры модели: {model_params}")
+            else:
+                logger.info(f"🔧 Используются параметры по умолчанию: {default_options}")
+            
             # Выполняем запрос к Ollama
             response = self.ollama_client.chat(
                 model=model_name,
@@ -248,11 +268,7 @@ class OllamaProcessingService:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                options={
-                    "temperature": 0.7,
-                    "top_p": 0.9,
-                    "num_predict": 4096
-                }
+                options=default_options
             )
             
             end_time = datetime.now()
@@ -270,11 +286,30 @@ class OllamaProcessingService:
             logger.error(f"🔍 Детали ошибки: {type(e).__name__}")
             raise
     
-    async def _process_with_openai(self, system_prompt: str, user_prompt: str, task_id: str) -> str:
+    async def _process_with_openai(self, system_prompt: str, user_prompt: str, task_id: str, model_params: Optional[Dict[str, Any]] = None) -> str:
         """Обработка с помощью OpenAI"""
         try:
             logger.info("🚀 Начинаем инференс с OpenAI...")
             start_time = datetime.now()
+            
+            # Подготавливаем параметры модели
+            default_params = {
+                "max_tokens": 4096,
+                "temperature": 0.7,
+                "top_p": 0.9
+            }
+            
+            if model_params:
+                # Фильтруем параметры, которые поддерживает OpenAI
+                openai_supported_params = {
+                    "max_tokens", "temperature", "top_p", "frequency_penalty", 
+                    "presence_penalty", "stop", "n", "stream"
+                }
+                filtered_params = {k: v for k, v in model_params.items() if k in openai_supported_params}
+                default_params.update(filtered_params)
+                logger.info(f"🔧 Используются пользовательские параметры OpenAI: {filtered_params}")
+            else:
+                logger.info(f"🔧 Используются параметры OpenAI по умолчанию: {default_params}")
             
             response = self.openai_client.chat.completions.create(
                 model="gpt-3.5-turbo",
@@ -282,9 +317,7 @@ class OllamaProcessingService:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=4096,
-                temperature=0.7,
-                top_p=0.9
+                **default_params
             )
             
             end_time = datetime.now()
@@ -311,8 +344,8 @@ class OllamaProcessingService:
         else:
             return str(input_data)
     
-    def _create_system_prompt(self, instructions: str) -> str:
-        """Создание системного промпта"""
+    def _create_default_system_prompt(self, instructions: str) -> str:
+        """Создание системного промпта по умолчанию"""
         base_prompt = """Ты - помощник для анализа и обработки текстовых данных. 
 Твоя задача - внимательно анализировать предоставленные данные и выполнять указанные инструкции."""
         

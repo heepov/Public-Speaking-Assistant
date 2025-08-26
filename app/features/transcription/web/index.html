@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тестирование сервиса транскрипции</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .status.healthy {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.loading {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        input[type="file"], select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        input[type="file"]:focus, select:focus {
+            border-color: #3498db;
+            outline: none;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        button:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .progress {
+            width: 100%;
+            height: 20px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        .progress-bar {
+            height: 100%;
+            background-color: #3498db;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+                 .info {
+             background-color: #e7f3ff;
+             border: 1px solid #b3d9ff;
+             color: #0066cc;
+             padding: 15px;
+             border-radius: 5px;
+             margin-bottom: 20px;
+         }
+         .download-link {
+             display: inline-block;
+             background-color: #27ae60;
+             color: white;
+             padding: 10px 20px;
+             text-decoration: none;
+             border-radius: 5px;
+             margin-top: 10px;
+         }
+         .download-link:hover {
+             background-color: #229954;
+         }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎵 Тестирование сервиса транскрипции</h1>
+        
+        <div class="info">
+            <strong>Информация:</strong> Этот интерфейс предназначен для тестирования сервиса транскрипции аудио файлов. 
+            Поддерживаемые форматы: MP3, WAV, M4A, FLAC, OGG, AAC.
+        </div>
+
+        <div id="status" class="status loading">
+            Проверка состояния сервиса...
+        </div>
+
+        <form id="transcribeForm">
+            <div class="form-group">
+                <label for="audioFile">Выберите аудио файл:</label>
+                <input type="file" id="audioFile" accept=".mp3,.wav,.m4a,.flac,.ogg,.aac" required>
+            </div>
+
+            <div class="form-group">
+                <label for="modelSize">Размер модели:</label>
+                <select id="modelSize">
+                    <option value="tiny">Tiny (быстрая, менее точная)</option>
+                    <option value="base" selected>Base (баланс скорости и точности)</option>
+                    <option value="small">Small (более точная)</option>
+                    <option value="medium">Medium (высокая точность)</option>
+                    <option value="large-v2">Large v2 (максимальная точность)</option>
+                    <option value="large-v3">Large v3 (новейшая модель)</option>
+                </select>
+            </div>
+
+            <button type="submit" id="submitBtn" disabled>
+                Начать транскрипцию
+            </button>
+        </form>
+
+        <div class="progress" id="progress" style="display: none;">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+
+        <div id="result" class="result" style="display: none;"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8002'; // Порт транскрипции
+        let isProcessing = false;
+
+        // Проверка состояния сервиса при загрузке
+        async function checkHealth() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                
+                const statusDiv = document.getElementById('status');
+                const submitBtn = document.getElementById('submitBtn');
+                
+                if (data.status === 'healthy') {
+                    statusDiv.className = 'status healthy';
+                    statusDiv.innerHTML = `
+                        ✅ Сервис работает<br>
+                        Устройство: ${data.device}<br>
+                        GPU: ${data.gpu_status}<br>
+                        Модель: ${data.model_size}<br>
+                        Язык: ${data.language}
+                    `;
+                    submitBtn.disabled = false;
+                } else {
+                    statusDiv.className = 'status error';
+                    statusDiv.textContent = `❌ Ошибка: ${data.message}`;
+                    submitBtn.disabled = true;
+                }
+            } catch (error) {
+                const statusDiv = document.getElementById('status');
+                statusDiv.className = 'status error';
+                statusDiv.textContent = `❌ Не удалось подключиться к сервису: ${error.message}`;
+            }
+        }
+
+        // Обработка формы
+        document.getElementById('transcribeForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            if (isProcessing) return;
+            
+            const fileInput = document.getElementById('audioFile');
+            const modelSize = document.getElementById('modelSize').value;
+            const submitBtn = document.getElementById('submitBtn');
+            const progress = document.getElementById('progress');
+            const progressBar = document.getElementById('progressBar');
+            const result = document.getElementById('result');
+            
+            if (!fileInput.files[0]) {
+                alert('Пожалуйста, выберите файл');
+                return;
+            }
+            
+            isProcessing = true;
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Обработка...';
+            progress.style.display = 'block';
+            result.style.display = 'none';
+            
+            // Симуляция прогресса
+            let progressValue = 0;
+            const progressInterval = setInterval(() => {
+                progressValue += Math.random() * 10;
+                if (progressValue > 90) progressValue = 90;
+                progressBar.style.width = progressValue + '%';
+            }, 500);
+            
+            try {
+                const formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+                formData.append('task_id', 'test_' + Date.now());
+                formData.append('model_size', modelSize);
+                
+                const response = await fetch(`${API_BASE}/transcribe`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                clearInterval(progressInterval);
+                progressBar.style.width = '100%';
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    result.style.display = 'block';
+                                         // Определяем текст для отображения
+                     let transcriptionText = 'Текст не найден';
+                     if (data.result && data.result.transcription) {
+                         transcriptionText = data.result.transcription;
+                     } else if (data.transcription) {
+                         transcriptionText = data.transcription;
+                     }
+                     
+                     result.innerHTML = `
+=== РЕЗУЛЬТАТ ТРАНСКРИПЦИИ ===
+
+Статус: ${data.status}
+Время обработки: ${data.processing_time || 'N/A'} сек
+
+=== ТЕКСТ ===
+${transcriptionText}
+
+=== ДЕТАЛИ ===
+${JSON.stringify(data, null, 2)}
+                     `;
+                     
+                     // Добавляем ссылку для скачивания транскрипции, если есть результат
+                     if (data.result && data.result.saved_files) {
+                         // Ссылка для TXT файла
+                         const downloadLink = document.createElement('a');
+                         downloadLink.href = `${API_BASE}/download/${data.result.saved_files.txt}`;
+                         downloadLink.className = 'download-link';
+                         downloadLink.textContent = '📥 Скачать транскрипцию (TXT)';
+                         downloadLink.download = data.result.saved_files.txt;
+                         downloadLink.target = '_blank';
+                         result.appendChild(downloadLink);
+                         
+                         // Ссылка для JSON файла
+                         const downloadJsonLink = document.createElement('a');
+                         downloadJsonLink.href = `${API_BASE}/download/${data.result.saved_files.json}`;
+                         downloadJsonLink.className = 'download-link';
+                         downloadJsonLink.textContent = '📥 Скачать транскрипцию (JSON)';
+                         downloadJsonLink.download = data.result.saved_files.json;
+                         downloadJsonLink.target = '_blank';
+                         downloadJsonLink.style.marginLeft = '10px';
+                         result.appendChild(downloadJsonLink);
+                     } else if (data.transcription) {
+                         // Fallback для старого формата
+                         const downloadLink = document.createElement('a');
+                         downloadLink.href = `${API_BASE}/download/${data.task_id}_transcription.txt`;
+                         downloadLink.className = 'download-link';
+                         downloadLink.textContent = '📥 Скачать транскрипцию (TXT)';
+                         downloadLink.download = `${data.task_id}_transcription.txt`;
+                         downloadLink.target = '_blank';
+                         result.appendChild(downloadLink);
+                     }
+                } else {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || 'Ошибка транскрипции');
+                }
+                
+            } catch (error) {
+                result.style.display = 'block';
+                result.innerHTML = `❌ Ошибка: ${error.message}`;
+            } finally {
+                isProcessing = false;
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Начать транскрипцию';
+                progress.style.display = 'none';
+                progressBar.style.width = '0%';
+            }
+        });
+
+        // Проверка состояния при загрузке страницы
+        checkHealth();
+        
+        // Периодическая проверка состояния
+        setInterval(checkHealth, 30000);
+    </script>
+</body>
+</html>

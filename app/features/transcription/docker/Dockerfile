@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     elfutils \
     git \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Создание символических ссылок для python
@@ -40,15 +41,30 @@ COPY app/features/transcription/ ./app/features/transcription/
 COPY app/features/__init__.py ./app/features/
 COPY app/__init__.py ./app/
 
-# Создание необходимых директорий
-RUN mkdir -p uploads outputs logs
+# Создание необходимых директорий для кэширования моделей
+RUN mkdir -p \
+    /app/app/features/transcription/models_cache \
+    /root/.cache/huggingface \
+    /root/.cache/whisper \
+    uploads \
+    outputs \
+    logs
 
-# Настройка переменных окружения для GPU
+# Создание символических ссылок для кэширования
+RUN ln -sf /app/app/features/transcription/models_cache /root/.cache/huggingface && \
+    ln -sf /app/app/features/transcription/models_cache /root/.cache/whisper
+
+# Настройка переменных окружения для GPU и кэширования моделей
 ENV PYTHONPATH=/app
 ENV CUDA_VISIBLE_DEVICES=0
+ENV HF_HOME=/app/app/features/transcription/models_cache
+ENV TRANSFORMERS_CACHE=/app/app/features/transcription/models_cache
+ENV WHISPERX_CACHE_DIR=/app/app/features/transcription/models_cache
+ENV TORCH_HOME=/app/app/features/transcription/models_cache
+ENV HF_DATASETS_CACHE=/app/app/features/transcription/models_cache
 
 # Открытие порта для микросервиса
-EXPOSE 8001
+EXPOSE 8002
 
 # Команда запуска микросервиса транскрипции
 CMD ["python3", "-m", "app.features.transcription.microservice"]
