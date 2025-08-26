@@ -34,7 +34,7 @@ docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 # Проверяем health status
 Write-Host "`n🏥 Проверка health status:" -ForegroundColor Yellow
 
-$containers = @("media-processor-main", "media-processor-converter", "media-processor-transcription")
+$containers = @("media-processor-main", "media-processor-converter", "media-processor-transcription", "ollama", "ollama-processing")
 $healthyCount = 0
 
 foreach ($container in $containers) {

@@ -106,10 +106,120 @@ services:
       retries: 3
       start_period: 60s
 
+  # Ollama сервис для LLM обработки
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - media-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Ollama Processing микросервис
+  ollama-processing:
+    build:
+      context: ../..
+      dockerfile: app/features/ollama_processing/docker/Dockerfile
+    image: ollama-processing:latest
+    container_name: ollama-processing
+    ports:
+      - "8004:8004"
+    environment:
+      - LOG_LEVEL=INFO
+      - DOCKER_ENV=true
+      - PORT=8004
+      - CUDA_VISIBLE_DEVICES=0
+      - OLLAMA_HOST=ollama:11434
+    volumes:
+      - ../../app:/app/app
+      - ../../uploads:/app/uploads
+      - ../../outputs:/app/outputs
+      - ../../logs:/app/logs
+    networks:
+      - media-network
+    restart: unless-stopped
+    depends_on:
+      - ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Контейнер для LLM обработки с GPU поддержкой (старый)
+  llm-processing:
+    build:
+      context: ../..
+      dockerfile: app/features/llm_processing/docker/Dockerfile
+    image: pres-prog-llm:latest
+    container_name: pres-prog-llm
+    ports:
+      - "8003:8003"
+    environment:
+      - LOG_LEVEL=INFO
+      - DOCKER_ENV=true
+      - PORT=8003
+      - CUDA_VISIBLE_DEVICES=0
+      - LLAMA_CUBLAS=1
+    volumes:
+      - ../../app:/app/app
+      - ../../uploads:/app/uploads
+      - ../../outputs:/app/outputs
+      - ../../logs:/app/logs
+      - ../../models:/models
+    networks:
+      - media-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
 networks:
   media-network:
     driver: bridge
 
 volumes:
   whisper-models:
+    driver: local
+  ollama-models:
     driver: local
