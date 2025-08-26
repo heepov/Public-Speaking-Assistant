@@ -127,6 +127,45 @@ class OllamaProcessingService:
     
     async def process_text(
         self,
+        text: str,
+        model: str = "llama2",
+        system_prompt: Optional[str] = None,
+        parameters: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """
+        Упрощенная обработка текста с помощью Ollama (для JSON API)
+        
+        Args:
+            text: Текст для обработки
+            model: Название модели Ollama
+            system_prompt: Системный промпт (опционально)
+            parameters: Параметры модели
+            
+        Returns:
+            Обработанный текст
+        """
+        
+        if not self.is_initialized:
+            raise RuntimeError("Сервис не инициализирован")
+        
+        try:
+            logger.info(f"🔄 Обработка текста с моделью {model}")
+            
+            # Используем системный промпт по умолчанию если не указан
+            if system_prompt is None:
+                system_prompt = self._create_default_system_prompt("")
+            
+            # Обрабатываем с помощью Ollama
+            result = await self._process_with_ollama(system_prompt, text, model, "", parameters)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка при обработке текста: {e}")
+            raise
+
+    async def process_text_full(
+        self,
         prompt: str,
         input_data: Optional[Dict[str, Any]] = None,
         instructions_file: Optional[str] = None,
@@ -134,7 +173,8 @@ class OllamaProcessingService:
         model_name: str = None,
         use_openai: bool = False,
         system_prompt: Optional[str] = None,
-        model_params: Optional[Dict[str, Any]] = None
+        model_params: Optional[Dict[str, Any]] = None,
+        instructions_content: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Обработка текста с помощью Ollama или OpenAI
@@ -161,9 +201,13 @@ class OllamaProcessingService:
             logger.info(f"🔄 ОБРАБОТКА ТЕКСТА - task_id: {task_id}")
             logger.info("=" * 60)
             
-            # Загрузка инструкций если указан файл
+            # Загрузка инструкций если указан файл или контент
             instructions = ""
-            if instructions_file and Path(instructions_file).exists():
+            if instructions_content:
+                instructions = instructions_content
+                logger.info(f"📖 Загружены инструкции из контента")
+                logger.info(f"📖 Размер инструкций: {len(instructions)} символов")
+            elif instructions_file and Path(instructions_file).exists():
                 with open(instructions_file, 'r', encoding='utf-8') as f:
                     instructions = f.read()
                 logger.info(f"📖 Загружены инструкции из файла: {instructions_file}")
@@ -252,14 +296,26 @@ class OllamaProcessingService:
                 "top_p": 0.9,
                 "num_predict": 800,
                 "repeat_penalty": 1.2,
-                "presence_penalty": 0.8
+                "presence_penalty": 0.8,
+                # GPU оптимизация - только основные параметры
+                "num_gpu_layers": 40,  # Количество слоев на GPU
+                # "num_ctx": 4096,       # Размер контекста
+                "num_ctx": 20000,       # Размер контекста
+                "num_thread": 8        # Количество CPU потоков
             }
             
-            if model_params:
-                default_options.update(model_params)
-                logger.info(f"🔧 Используются пользовательские параметры модели: {model_params}")
-            else:
-                logger.info(f"🔧 Используются параметры по умолчанию: {default_options}")
+            # Нормализуем параметры (max_tokens -> num_predict для Ollama)
+            if model_params and 'max_tokens' in model_params:
+                model_params['num_predict'] = model_params.pop('max_tokens')
+            
+            # Оптимизируем параметры GPU
+            # optimized_params = self._optimize_gpu_params(model_params)
+            
+            # if optimized_params:
+            #     default_options.update(optimized_params)
+            #     logger.info(f"🔧 Используются оптимизированные параметры модели: {optimized_params}")
+            # else:
+            #     logger.info(f"🔧 Используются параметры по умолчанию: {default_options}")
             
             # Выполняем запрос к Ollama
             response = self.ollama_client.chat(
@@ -398,6 +454,59 @@ class OllamaProcessingService:
         except Exception as e:
             logger.error(f"❌ Ошибка при получении списка моделей: {e}")
             return []
+    
+    def _optimize_gpu_params(self, model_params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Автоматическая оптимизация параметров GPU в зависимости от доступной памяти"""
+        try:
+            if not torch.cuda.is_available():
+                logger.info("🔍 GPU недоступен, используем CPU параметры")
+                return model_params or {}
+            
+            # Получаем информацию о GPU
+            gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3  # в GB
+            gpu_name = torch.cuda.get_device_name(0)
+            
+            logger.info(f"🔍 GPU: {gpu_name}, Память: {gpu_memory:.1f} GB")
+            
+            # Базовые параметры в зависимости от памяти GPU
+            if gpu_memory >= 24:  # RTX 4090, 3090
+                optimal_gpu_layers = 40
+                optimal_ctx = 8192
+                optimal_threads = 12
+            elif gpu_memory >= 16:  # RTX 4080, 3080 Ti
+                optimal_gpu_layers = 35
+                optimal_ctx = 6144
+                optimal_threads = 10
+            elif gpu_memory >= 12:  # RTX 3080, 2080 Ti
+                optimal_gpu_layers = 32
+                optimal_ctx = 4096
+                optimal_threads = 8
+            elif gpu_memory >= 8:   # RTX 3070, 2080
+                optimal_gpu_layers = 28
+                optimal_ctx = 3072
+                optimal_threads = 6
+            else:  # Меньше 8GB
+                optimal_gpu_layers = 20
+                optimal_ctx = 2048
+                optimal_threads = 4
+            
+            # Создаем оптимизированные параметры
+            optimized_params = {
+                "num_gpu_layers": optimal_gpu_layers,
+                "num_ctx": optimal_ctx,
+                "num_thread": optimal_threads
+            }
+            
+            # Объединяем с пользовательскими параметрами
+            if model_params:
+                optimized_params.update(model_params)
+            
+            logger.info(f"🔧 Оптимизированные GPU параметры: {optimized_params}")
+            return optimized_params
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось оптимизировать GPU параметры: {e}")
+            return model_params or {}
     
     async def install_model(self, model_name: str) -> bool:
         """Установка модели"""

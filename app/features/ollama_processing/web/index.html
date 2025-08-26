@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ollama Processing Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .form-container {
+            padding: 40px;
+        }
+
+        .form-section {
+            margin-bottom: 30px;
+            padding: 25px;
+            border: 2px solid #f0f0f0;
+            border-radius: 15px;
+            background: #fafafa;
+        }
+
+        .form-section h3 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.3em;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .form-group input[type="text"],
+        .form-group input[type="number"],
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input[type="text"]:focus,
+        .form-group input[type="number"]:focus,
+        .form-group textarea:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-group textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .form-group input[type="file"] {
+            padding: 10px;
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            background: #f9f9f9;
+            cursor: pointer;
+        }
+
+        .form-group input[type="file"]:hover {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            accent-color: #667eea;
+        }
+
+        .slider-container {
+            position: relative;
+            padding: 10px 0;
+        }
+
+        .slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #ddd;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        }
+
+        .slider::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        }
+
+        .slider-value {
+            display: inline-block;
+            margin-left: 10px;
+            font-weight: 600;
+            color: #667eea;
+            min-width: 40px;
+        }
+
+        .submit-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 40px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .submit-btn:active {
+            transform: translateY(0);
+        }
+
+        .result-container {
+            margin-top: 30px;
+            padding: 25px;
+            border: 2px solid #e0e0e0;
+            border-radius: 15px;
+            background: #f9f9f9;
+            display: none;
+        }
+
+        .result-container h3 {
+            color: #333;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .result-content {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #ddd;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .error {
+            color: #e74c3c;
+            background: #fdf2f2;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #f5c6cb;
+            margin-top: 10px;
+        }
+
+        .success {
+            color: #27ae60;
+            background: #f0f9f4;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #c3e6cb;
+            margin-top: 10px;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+        }
+
+        .btn-secondary {
+            background-color: #e0e0e0;
+            color: #333;
+            padding: 8px 15px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9em;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.2s;
+        }
+
+        .btn-secondary:hover {
+            background-color: #d0d0d0;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary:active {
+            transform: translateY(0);
+        }
+
+        .models-list {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            background: #f9f9f9;
+        }
+
+        .models-list li {
+            list-style: none;
+            padding: 8px 12px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+        }
+
+        .models-list li:last-child {
+            border-bottom: none;
+        }
+
+        .models-list li:hover {
+            background-color: #f0f4ff;
+        }
+
+        .models-list li.selected {
+            background-color: #667eea;
+            color: white;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        .status.healthy {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.loading {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        @media (max-width: 768px) {
+            .grid-2, .grid-3 {
+                grid-template-columns: 1fr;
+            }
+            
+            .form-container {
+                padding: 20px;
+            }
+            
+            .header {
+                padding: 20px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 Ollama Processing Test</h1>
+            <p>Тестирование сервиса обработки текста с настраиваемыми параметрами</p>
+        </div>
+
+        <div class="form-container">
+            <!-- Статус сервиса -->
+            <div id="status" class="status loading">
+                Проверка состояния сервиса...
+            </div>
+
+            <form id="ollamaForm" enctype="multipart/form-data">
+                <!-- Основные параметры -->
+                <div class="form-section">
+                    <h3>📝 Основные параметры</h3>
+                    
+                    <div class="form-group">
+                        <label for="prompt">Промпт (обязательно):</label>
+                        <textarea id="prompt" name="prompt" placeholder="Введите ваш промпт здесь..." required></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="task_id">ID задачи:</label>
+                        <input type="text" id="task_id" name="task_id" placeholder="task_123" value="test_task_001">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="model_name">Модель:</label>
+                        <select id="model_name" name="model_name">
+                            <option value="">Загрузка моделей...</option>
+                        </select>
+                        <div style="margin-top: 10px;">
+                            <button type="button" id="refreshModels" class="btn-secondary">Обновить список моделей</button>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="installModel">Установить новую модель:</label>
+                        <input type="text" id="installModel" name="installModel" placeholder="llama2:13b">
+                        <div style="margin-top: 10px;">
+                            <button type="button" id="installModelBtn" class="btn-secondary">📥 Установить модель</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Файлы -->
+                <div class="form-section">
+                    <h3>📁 Файлы</h3>
+                    
+                    <div class="form-group">
+                        <label for="input_file">Файл с данными (JSON, TXT, MD):</label>
+                        <input type="file" id="input_file" name="input_file" accept=".json,.txt,.md,.csv,.xml">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="instructions_file">Файл с инструкциями:</label>
+                        <input type="file" id="instructions_file" name="instructions_file" accept=".md,.txt">
+                    </div>
+                </div>
+
+                <!-- Параметры генерации -->
+                <div class="form-section">
+                    <h3>⚙️ Параметры генерации</h3>
+                    
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label for="temperature">Температура (0.0 - 2.0):</label>
+                            <div class="slider-container">
+                                <input type="range" id="temperature" name="temperature" class="slider" 
+                                       min="0.0" max="2.0" step="0.1" value="0.7">
+                                <span class="slider-value" id="temperature_value">0.7</span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="top_p">Top-p (0.0 - 1.0):</label>
+                            <div class="slider-container">
+                                <input type="range" id="top_p" name="top_p" class="slider" 
+                                       min="0.0" max="1.0" step="0.1" value="0.9">
+                                <span class="slider-value" id="top_p_value">0.9</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label for="num_predict">Максимум токенов:</label>
+                            <input type="number" id="num_predict" name="num_predict" 
+                                   min="100" max="8192" value="500" step="100">
+                            <small style="color: #666; font-size: 12px;">(будет преобразовано в max_tokens для API)</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="seed">Семя (опционально):</label>
+                            <input type="number" id="seed" name="seed" 
+                                   min="1" max="999999" placeholder="42">
+                        </div>
+                    </div>
+
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label for="repeat_penalty">Штраф за повторения (1.0 - 2.0):</label>
+                            <div class="slider-container">
+                                <input type="range" id="repeat_penalty" name="repeat_penalty" class="slider" 
+                                       min="1.0" max="2.0" step="0.1" value="1.1">
+                                <span class="slider-value" id="repeat_penalty_value">1.1</span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="presence_penalty">Штраф за присутствие (-2.0 - 2.0):</label>
+                            <div class="slider-container">
+                                <input type="range" id="presence_penalty" name="presence_penalty" class="slider" 
+                                       min="-2.0" max="2.0" step="0.1" value="0.0">
+                                <span class="slider-value" id="presence_penalty_value">0.0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Кастомный системный промпт -->
+                <div class="form-section">
+                    <h3>🎯 Кастомный системный промпт</h3>
+                    
+                    <div class="form-group">
+                        <label for="custom_system_prompt">Системный промпт (опционально):</label>
+                        <textarea id="custom_system_prompt" name="custom_system_prompt" 
+                                  placeholder="Ты - спичрайтер. Всегда отвечай на русском, эмоционально и убедительно..."></textarea>
+                    </div>
+                </div>
+
+                <button type="submit" class="submit-btn">🚀 Отправить запрос</button>
+            </form>
+
+            <div id="result" class="result-container">
+                <h3>📊 Результат</h3>
+                <div id="resultContent" class="result-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8004';
+        
+        // Инициализация при загрузке страницы
+        window.onload = function() {
+            checkHealth();
+            loadModels();
+            setupSliders();
+            setupForm();
+        };
+        
+        // Настройка слайдеров
+        function setupSliders() {
+            const sliders = document.querySelectorAll('.slider');
+            sliders.forEach(slider => {
+                const valueDisplay = document.getElementById(slider.id + '_value');
+                if (valueDisplay) {
+                    slider.addEventListener('input', function() {
+                        valueDisplay.textContent = this.value;
+                    });
+                }
+            });
+        }
+        
+        // Настройка формы
+        function setupForm() {
+            const form = document.getElementById('ollamaForm');
+            form.addEventListener('submit', handleSubmit);
+            
+            // Кнопки управления моделями
+            document.getElementById('refreshModels').addEventListener('click', loadModels);
+            document.getElementById('installModelBtn').addEventListener('click', installModel);
+        }
+        
+        // Проверка состояния сервиса
+        async function checkHealth() {
+            const statusDiv = document.getElementById('status');
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                
+                if (data.status === 'healthy') {
+                    statusDiv.className = 'status healthy';
+                    statusDiv.textContent = `✅ Сервис работает (${data.device}, GPU: ${data.gpu_status})`;
+                } else {
+                    statusDiv.className = 'status error';
+                    statusDiv.textContent = '❌ Сервис не работает';
+                }
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.textContent = '❌ Ошибка подключения к сервису';
+            }
+        }
+        
+        // Загрузка моделей
+        async function loadModels() {
+            try {
+                const response = await fetch(`${API_BASE}/models`);
+                const data = await response.json();
+                
+                const modelSelect = document.getElementById('model_name');
+                modelSelect.innerHTML = '<option value="">Выберите модель...</option>';
+                
+                if (data.available_models && data.available_models.length > 0) {
+                    data.available_models.forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model.name;
+                        option.textContent = model.name;
+                        modelSelect.appendChild(option);
+                    });
+                } else {
+                    modelSelect.innerHTML = '<option value="">Нет доступных моделей</option>';
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки моделей:', error);
+                document.getElementById('model_name').innerHTML = '<option value="">Ошибка загрузки моделей</option>';
+            }
+        }
+        
+        // Установка модели
+        async function installModel() {
+            const modelName = document.getElementById('installModel').value.trim();
+            
+            if (!modelName) {
+                alert('Введите название модели');
+                return;
+            }
+            
+            const btn = document.getElementById('installModelBtn');
+            const originalText = btn.textContent;
+            
+            btn.disabled = true;
+            btn.textContent = 'Установка...';
+            
+            try {
+                const response = await fetch(`${API_BASE}/models/pull`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        model_name: modelName
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    alert(`✅ Модель ${modelName} успешно установлена!`);
+                    loadModels(); // Обновляем список моделей
+                } else {
+                    alert(`❌ Ошибка установки: ${data.error || 'Неизвестная ошибка'}`);
+                }
+            } catch (error) {
+                alert(`❌ Ошибка подключения: ${error.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+        }
+        
+        // Обработка отправки формы
+        async function handleSubmit(event) {
+            event.preventDefault();
+            
+            const formData = new FormData(event.target);
+            const prompt = formData.get('prompt');
+            const modelName = formData.get('model_name');
+            
+            if (!prompt) {
+                alert('Введите промпт');
+                return;
+            }
+            
+            if (!modelName) {
+                alert('Выберите модель');
+                return;
+            }
+            
+            const submitBtn = event.target.querySelector('.submit-btn');
+            const resultContainer = document.getElementById('result');
+            const resultContent = document.getElementById('resultContent');
+            
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Обработка...';
+            resultContainer.style.display = 'none';
+            
+            try {
+                // Подготавливаем параметры
+                const parameters = {
+                    temperature: parseFloat(formData.get('temperature') || 0.7),
+                    top_p: parseFloat(formData.get('top_p') || 0.9),
+                    max_tokens: parseInt(formData.get('num_predict') || 500), // Преобразуем в max_tokens
+                    repeat_penalty: parseFloat(formData.get('repeat_penalty') || 1.1),
+                    presence_penalty: parseFloat(formData.get('presence_penalty') || 0.0)
+                };
+                
+                if (formData.get('seed')) {
+                    parameters.seed = parseInt(formData.get('seed'));
+                }
+                
+                // Подготавливаем данные запроса
+                const requestData = {
+                    text: prompt,  // Это правильное поле
+                    model: modelName,
+                    task_id: formData.get('task_id') || 'web_test_' + Date.now(),
+                    parameters: parameters
+                };
+                
+                // Добавляем системный промпт если есть
+                const systemPrompt = formData.get('custom_system_prompt');
+                if (systemPrompt && systemPrompt.trim()) {
+                    requestData.system_prompt = systemPrompt.trim();
+                }
+                
+                // Обрабатываем файлы если они загружены
+                const inputFile = formData.get('input_file');
+                const instructionsFile = formData.get('instructions_file');
+                
+                if (inputFile && inputFile.size > 0) {
+                    const fileContent = await inputFile.text();
+                    requestData.input_file_content = fileContent;
+                }
+                
+                if (instructionsFile && instructionsFile.size > 0) {
+                    const fileContent = await instructionsFile.text();
+                    requestData.instructions_file_content = fileContent;
+                }
+                
+                // Отладочная информация
+                console.log('Отправляем запрос:', requestData);
+                
+                // Отправляем запрос
+                const response = await fetch(`${API_BASE}/process`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestData)
+                });
+                
+                const data = await response.json();
+                
+                resultContainer.style.display = 'block';
+                
+                if (data.status === 'success') {
+                    resultContent.innerHTML = `✅ Успешно обработано!
+
+📝 Результат:
+${data.result.processed_text}
+
+⏱️ Время обработки: ${data.processing_time}с
+🤖 Модель: ${data.model_used}
+💻 Устройство: ${data.device_used}
+
+📊 Параметры:
+- Температура: ${parameters.temperature}
+- Top-p: ${parameters.top_p}
+- Максимум токенов: ${parameters.max_tokens}
+- Штраф за повторения: ${parameters.repeat_penalty}
+- Штраф за присутствие: ${parameters.presence_penalty}`;
+                } else {
+                    resultContent.innerHTML = `❌ Ошибка: ${data.error || 'Неизвестная ошибка'}`;
+                }
+            } catch (error) {
+                resultContainer.style.display = 'block';
+                resultContent.innerHTML = `❌ Ошибка подключения: ${error.message}`;
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = '🚀 Отправить запрос';
+            }
+        }
+    </script>
+</body>
+</html>

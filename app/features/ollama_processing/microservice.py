@@ -9,8 +9,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
 
+import torch
+
 import uvicorn
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Query
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Query, Body
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 import aiofiles
 
@@ -21,6 +27,19 @@ from app.features.ollama_processing.service import OllamaProcessingService
 # Настройка логирования
 logger = setup_logger(__name__)
 
+# Pydantic модели для запросов
+class ModelPullRequest(BaseModel):
+    model_name: str
+
+class ProcessRequest(BaseModel):
+    text: str
+    model: str = "llama2"
+    task_id: str
+    parameters: Optional[Dict[str, Any]] = None
+    system_prompt: Optional[str] = None
+    input_file_content: Optional[str] = None
+    instructions_file_content: Optional[str] = None
+
 # Создание FastAPI приложения
 app = FastAPI(
     title="Ollama Processing Microservice",
@@ -28,11 +47,48 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Настройка CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # В продакшене лучше указать конкретные домены
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Создание директорий
 settings.create_directories()
 
+# Подключение статических файлов для веб-интерфейса
+try:
+    app.mount("/static", StaticFiles(directory="app/features/ollama_processing/web"), name="static")
+except:
+    pass  # Игнорируем ошибку если директория не существует
+
 # Инициализация сервиса Ollama
 ollama_service = None
+
+
+async def ensure_model_available(model_name: str):
+    """Проверка и установка модели если она недоступна"""
+    try:
+        if not ollama_service.is_initialized:
+            await ollama_service.initialize()
+        
+        available_models = await ollama_service.list_models()
+        
+        if model_name not in available_models:
+            logger.info(f"📥 Модель {model_name} не найдена, устанавливаем...")
+            success = await ollama_service.install_model(model_name)
+            if not success:
+                raise Exception(f"Не удалось установить модель {model_name}")
+            logger.info(f"✅ Модель {model_name} успешно установлена")
+        else:
+            logger.info(f"✅ Модель {model_name} уже доступна")
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка при проверке/установке модели: {e}")
+        raise
 
 
 @app.on_event("startup")
@@ -56,6 +112,89 @@ async def startup_event():
 
 @app.post("/process")
 async def process_text(
+    request: ProcessRequest
+):
+    """
+    Обработка текста с помощью Ollama (JSON endpoint)
+    """
+    try:
+        logger.info(f"🔄 Получен JSON запрос на обработку - task_id: {request.task_id}")
+        logger.info(f"🤖 Запрошенная модель: {request.model}")
+        logger.info(f"📝 Полученный текст: '{request.text}'")
+        logger.info(f"📝 Длина текста: {len(request.text) if request.text else 0}")
+        
+        start_time = datetime.now()
+        
+        # Инициализируем сервис если нужно
+        if not ollama_service.is_initialized:
+            await ollama_service.initialize()
+        
+        # Проверяем и загружаем модель если нужно
+        await ensure_model_available(request.model)
+        
+        # Подготавливаем параметры
+        parameters = request.parameters or {}
+        
+        # Нормализуем параметры (num_predict -> max_tokens)
+        if 'num_predict' in parameters and 'max_tokens' not in parameters:
+            parameters['max_tokens'] = parameters.pop('num_predict')
+        
+        # Подготавливаем входные данные
+        input_data = None
+        if request.input_file_content:
+            try:
+                input_data = json.loads(request.input_file_content)
+            except json.JSONDecodeError:
+                input_data = request.input_file_content
+        
+        # Подготавливаем инструкции
+        instructions = request.instructions_file_content
+        
+        # Обрабатываем текст
+        result = await ollama_service.process_text_full(
+            prompt=request.text,
+            input_data=input_data,
+            instructions_file=None,
+            task_id=request.task_id,
+            model_name=request.model,
+            use_openai=False,
+            system_prompt=request.system_prompt,
+            model_params=parameters,
+            instructions_content=request.instructions_file_content
+        )
+        
+        # Сохраняем результат (если не был сохранен в process_text_full)
+        if isinstance(result, dict) and "output_file" in result:
+            output_file = Path(result["output_file"])
+        else:
+            output_file = ollama_service._save_result(result, request.task_id)
+        
+        end_time = datetime.now()
+        processing_time = (end_time - start_time).total_seconds()
+        
+        return {
+            "status": "success",
+            "task_id": request.task_id,
+            "result": {
+                "processed_text": result.get("result", result),
+                "saved_files": {
+                    "txt": result.get("output_file", str(output_file))
+                }
+            },
+            "model_used": request.model,
+            "device_used": "cuda" if torch.cuda.is_available() else "cpu",
+            "processing_time": processing_time
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка при обработке текста: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+@app.post("/process/form")
+async def process_text_form(
     prompt: str = Form(...),
     input_file: Optional[UploadFile] = File(None),
     task_id: str = Form(...),
@@ -134,30 +273,7 @@ async def process_text(
             "status": "error"
         }
 
-async def ensure_model_available(model_name: str):
-    """Проверяет доступность модели и загружает её при необходимости"""
-    try:
-        logger.info(f"🔍 Проверяем доступность модели: {model_name}")
-        
-        # Получаем список доступных моделей
-        available_models = await ollama_service.list_models()
-        logger.info(f"📦 Доступные модели: {available_models}")
-        
-        if model_name not in available_models:
-            logger.info(f"📥 Модель {model_name} не найдена, начинаем загрузку...")
-            
-            # Загружаем модель
-            success = await ollama_service.install_model(model_name)
-            if not success:
-                raise Exception(f"Не удалось загрузить модель {model_name}")
-            
-            logger.info(f"✅ Модель {model_name} успешно загружена")
-        else:
-            logger.info(f"✅ Модель {model_name} уже доступна")
-            
-    except Exception as e:
-        logger.error(f"❌ Ошибка при проверке/загрузке модели: {e}")
-        raise
+
 
 @app.post("/process-json")
 async def process_json_data(
@@ -285,11 +401,46 @@ async def _load_input_data(file_path: Path) -> Any:
 @app.get("/health")
 async def health_check():
     """Проверка состояния микросервиса"""
-    return {
-        "status": "healthy",
-        "service": "ollama_processing",
-        "timestamp": datetime.now().isoformat()
-    }
+    try:
+        # Проверяем статус Ollama
+        ollama_status = "unknown"
+        gpu_status = "unknown"
+        device = "cpu"
+        
+        if torch.cuda.is_available():
+            device = "cuda"
+            gpu_status = "available"
+        else:
+            gpu_status = "not_available"
+        
+        # Проверяем доступность Ollama
+        try:
+            import requests
+            ollama_host = os.environ.get("OLLAMA_HOST", "localhost:11434")
+            response = requests.get(f"http://{ollama_host}/api/tags", timeout=5)
+            if response.status_code == 200:
+                ollama_status = "running"
+            else:
+                ollama_status = "error"
+        except:
+            ollama_status = "not_available"
+        
+        return {
+            "status": "healthy",
+            "service": "ollama_processing",
+            "device": device,
+            "gpu_status": gpu_status,
+            "ollama_status": ollama_status,
+            "ollama_host": os.environ.get("OLLAMA_HOST", "localhost:11434"),
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "service": "ollama_processing",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
 
 
 @app.get("/model-info")
@@ -309,39 +460,52 @@ async def list_models():
             await ollama_service.initialize()
         
         models = await ollama_service.list_models()
+        
+        # Формируем список моделей с дополнительной информацией
+        models_info = []
+        for model_name in models:
+            models_info.append({
+                "name": model_name,
+                "size": "Unknown",  # Ollama API не предоставляет размер напрямую
+                "modified_at": datetime.now().isoformat()
+            })
+        
         return {
-            "models": models,
-            "count": len(models)
+            "available_models": models_info,
+            "device": "cuda" if torch.cuda.is_available() else "cpu",
+            "gpu_available": torch.cuda.is_available()
         }
     except Exception as e:
         logger.error(f"❌ Ошибка при получении списка моделей: {e}")
         return {"error": str(e)}
 
-@app.post("/models/install")
-async def install_model(model_name: str = Form(...)):
+@app.post("/models/pull")
+async def pull_model(request: ModelPullRequest):
     """Установка новой модели"""
     try:
         if not ollama_service.is_initialized:
             await ollama_service.initialize()
         
-        logger.info(f"📥 Запрос на установку модели: {model_name}")
+        logger.info(f"📥 Запрос на установку модели: {request.model_name}")
         
-        success = await ollama_service.install_model(model_name)
+        success = await ollama_service.install_model(request.model_name)
         if success:
             return {
                 "status": "success",
-                "message": f"Модель {model_name} успешно установлена",
-                "model": model_name
+                "message": f"Модель {request.model_name} успешно установлена",
+                "model": request.model_name
             }
         else:
             return {
                 "status": "error",
-                "message": f"Не удалось установить модель {model_name}",
-                "model": model_name
+                "message": f"Не удалось установить модель {request.model_name}",
+                "model": request.model_name
             }
     except Exception as e:
         logger.error(f"❌ Ошибка при установке модели: {e}")
         return {"error": str(e)}
+
+
 
 @app.delete("/models/{model_name}")
 async def remove_model(model_name: str):
@@ -399,6 +563,14 @@ async def get_model_info():
         logger.error(f"❌ Ошибка при получении информации о моделях: {e}")
         return {"error": str(e)}
 
+
+@app.get("/")
+async def root():
+    """Корневой эндпоинт - возвращает веб-интерфейс"""
+    try:
+        return FileResponse("app/features/ollama_processing/web/index.html")
+    except:
+        return {"message": "Ollama Processing Service", "docs": "/docs"}
 
 @app.get("/supported-formats")
 async def get_supported_formats():
