@@ -174,3 +174,10 @@ Thumbs.db
 *.temp
 *.bak
 *.backup
+
+# Secrets and tokens
+*_token*
+*_secret*
+*.env
+.env.local
+.env.production
