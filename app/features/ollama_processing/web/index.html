@@ -440,8 +440,7 @@
                     <div class="grid-2">
                         <div class="form-group">
                             <label for="num_predict">Максимум токенов:</label>
-                            <input type="number" id="num_predict" name="num_predict" 
-                                   min="100" max="8192" value="500" step="100">
+                            <input type="number" id="num_predict" name="num_predict"  value="-1" >
                             <small style="color: #666; font-size: 12px;">(будет преобразовано в max_tokens для API)</small>
                         </div>
 
@@ -665,8 +664,14 @@
                 
                 // Добавляем системный промпт если есть
                 const systemPrompt = formData.get('custom_system_prompt');
+                console.log('📖 custom_system_prompt из формы:', systemPrompt);
                 if (systemPrompt && systemPrompt.trim()) {
                     requestData.system_prompt = systemPrompt.trim();
+                    console.log('📖 Установлен system_prompt:', requestData.system_prompt);
+                    console.log('📖 Примечание: Инструкции будут добавлены к этому системному промпту');
+                } else {
+                    console.log('📖 custom_system_prompt пустой или не заполнен');
+                    console.log('📖 Примечание: Будет создан системный промпт по умолчанию с инструкциями');
                 }
                 
                 // Обрабатываем файлы если они загружены
@@ -681,6 +686,11 @@
                 if (instructionsFile && instructionsFile.size > 0) {
                     const fileContent = await instructionsFile.text();
                     requestData.instructions_file_content = fileContent;
+                    console.log('📖 Инструкции загружены:', fileContent.substring(0, 100) + '...');
+                    console.log('📖 Размер инструкций:', fileContent.length, 'символов');
+                    console.log('📖 Тип инструкций:', typeof fileContent);
+                } else {
+                    console.log('📖 Инструкции не загружены');
                 }
                 
                 // Отладочная информация

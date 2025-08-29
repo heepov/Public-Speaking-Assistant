@@ -207,6 +207,7 @@ class OllamaProcessingService:
                 instructions = instructions_content
                 logger.info(f"📖 Загружены инструкции из контента")
                 logger.info(f"📖 Размер инструкций: {len(instructions)} символов")
+                logger.info(f"📖 Содержимое инструкций (первые 100 символов): '{instructions[:100]}...'")
             elif instructions_file and Path(instructions_file).exists():
                 with open(instructions_file, 'r', encoding='utf-8') as f:
                     instructions = f.read()
@@ -214,6 +215,8 @@ class OllamaProcessingService:
                 logger.info(f"📖 Размер инструкций: {len(instructions)} символов")
             else:
                 logger.info("📖 Инструкции не предоставлены, используются стандартные")
+            
+            logger.info(f"📖 Финальное значение instructions: '{instructions[:50] if instructions else 'None'}...' (тип: {type(instructions)}, длина: {len(instructions) if instructions else 0})")
             
             # Подготовка входных данных
             input_text = ""
@@ -224,14 +227,25 @@ class OllamaProcessingService:
                 logger.info("📄 Входные данные не предоставлены, используется только промпт")
             
             # Формирование промпта для модели
+            logger.info(f"📖 Передаем инструкции в _create_default_system_prompt: '{instructions[:50] if instructions else 'None'}...'")
+            logger.info(f"📖 system_prompt до проверки: '{system_prompt}'")
             if system_prompt is None:
                 system_prompt = self._create_default_system_prompt(instructions)
+                logger.info(f"📖 system_prompt после _create_default_system_prompt: '{system_prompt[:100]}...'")
+            else:
+                # Если system_prompt уже установлен, но есть инструкции, добавляем их
+                if instructions and instructions.strip():
+                    logger.info(f"📖 Добавляем инструкции к существующему system_prompt")
+                    system_prompt = f"{system_prompt}\n\nИнструкции:\n{instructions}"
+                    logger.info(f"📖 system_prompt с добавленными инструкциями: '{system_prompt[:100]}...'")
+                else:
+                    logger.info(f"📖 system_prompt уже установлен: '{system_prompt[:100]}...'")
             user_prompt = self._create_user_prompt(input_text, prompt)
             
             logger.info(f"💬 Размер системного промпта: {len(system_prompt)} символов")
             logger.info(f"💬 Размер пользовательского промпта: {len(user_prompt)} символов")
             logger.info(f"💬 Общий размер промпта: {len(system_prompt) + len(user_prompt)} символов")
-            
+            num_ctx = (len(input_text) + (len(input_text) * 0.5))/4
             # Выбор модели
             if use_openai and self.openai_client:
                 logger.info("🤖 Использование OpenAI для обработки...")
@@ -241,7 +255,7 @@ class OllamaProcessingService:
                 # Используем Ollama
                 model_to_use = model_name or self.default_model
                 logger.info(f"🤖 Использование Ollama модели: {model_to_use}")
-                result = await self._process_with_ollama(system_prompt, user_prompt, model_to_use, task_id, model_params)
+                result = await self._process_with_ollama(system_prompt, user_prompt, model_to_use, task_id, model_params, num_ctx=num_ctx)
                 model_used = model_to_use
             
             # Сохранение результата
@@ -264,7 +278,7 @@ class OllamaProcessingService:
             logger.error(f"❌ Ошибка при обработке текста: {e}")
             raise
     
-    async def _process_with_ollama(self, system_prompt: str, user_prompt: str, model_name: str, task_id: str, model_params: Optional[Dict[str, Any]] = None) -> str:
+    async def _process_with_ollama(self, system_prompt: str, user_prompt: str, model_name: str, task_id: str, model_params: Optional[Dict[str, Any]] = None, num_ctx: int = 8192) -> str:
         """Обработка с помощью Ollama"""
         try:
             logger.info("🚀 Начинаем инференс с Ollama...")
@@ -290,23 +304,31 @@ class OllamaProcessingService:
             # Формируем полный промпт
             full_prompt = f"{system_prompt}\n\n{user_prompt}"
             
+            # Логируем полный промпт перед отправкой
+            logger.info("=" * 80)
+            logger.info("🔍 ПОЛНЫЙ ПРОМПТ ДЛЯ OLLAMA:")
+            logger.info(f"📝 Объединенный промпт ({len(full_prompt)} символов):")
+            logger.info("-" * 40)
+            logger.info(full_prompt)
+            logger.info("=" * 80)
+            
             # Подготавливаем параметры модели
             default_options = {
-                "temperature": 0.95,
+                "temperature": 0.8,
                 "top_p": 0.9,
-                "num_predict": 800,
-                "repeat_penalty": 1.2,
+                "num_predict": -1,
+                "repeat_penalty": 1.1,
                 "presence_penalty": 0.8,
+                "num_ctx": num_ctx,       # Размер контекста
+
                 # GPU оптимизация - только основные параметры
-                "num_gpu_layers": 40,  # Количество слоев на GPU
-                # "num_ctx": 4096,       # Размер контекста
-                "num_ctx": 20000,       # Размер контекста
-                "num_thread": 8        # Количество CPU потоков
+                "num_gpu_layers": 35,  # Количество слоев на GPU
+                "num_thread": 12        # Количество CPU потоков
             }
             
             # Нормализуем параметры (max_tokens -> num_predict для Ollama)
-            if model_params and 'max_tokens' in model_params:
-                model_params['num_predict'] = model_params.pop('max_tokens')
+            # if model_params and 'max_tokens' in model_params:
+            #     model_params['num_predict'] = model_params.pop('max_tokens')
             
             # Оптимизируем параметры GPU
             # optimized_params = self._optimize_gpu_params(model_params)
@@ -317,7 +339,13 @@ class OllamaProcessingService:
             # else:
             #     logger.info(f"🔧 Используются параметры по умолчанию: {default_options}")
             
+
             # Выполняем запрос к Ollama
+            logger.info(f"🔍 Отправляем запрос к Ollama:")
+            logger.info(f"🔍 model_name: {model_name}")
+            logger.info(f"🔍 system_prompt (размер: {len(system_prompt)}): '{system_prompt[:200]}...'")
+            logger.info(f"🔍 user_prompt (размер: {len(user_prompt)}): '{user_prompt[:200]}...'")
+            
             response = self.ollama_client.chat(
                 model=model_name,
                 messages=[
@@ -326,6 +354,7 @@ class OllamaProcessingService:
                 ],
                 options=default_options
             )
+            logger.info(f"🔍 Запрос к Ollama: model_name={model_name},\n system_prompt={system_prompt},\n user_prompt={user_prompt}\n options={default_options}")
             
             end_time = datetime.now()
             inference_time = (end_time - start_time).total_seconds()
@@ -342,6 +371,7 @@ class OllamaProcessingService:
             logger.error(f"🔍 Детали ошибки: {type(e).__name__}")
             raise
     
+    # Не используется только через API т.е платная модель
     async def _process_with_openai(self, system_prompt: str, user_prompt: str, task_id: str, model_params: Optional[Dict[str, Any]] = None) -> str:
         """Обработка с помощью OpenAI"""
         try:
@@ -402,12 +432,20 @@ class OllamaProcessingService:
     
     def _create_default_system_prompt(self, instructions: str) -> str:
         """Создание системного промпта по умолчанию"""
+        logger.info(f"🔍 ВХОД В _create_default_system_prompt с инструкциями: '{instructions[:50] if instructions else 'None'}...'")
+        
         base_prompt = """Ты - помощник для анализа и обработки текстовых данных. 
 Твоя задача - внимательно анализировать предоставленные данные и выполнять указанные инструкции."""
         
-        if instructions:
-            return f"{base_prompt}\n\nИнструкции:\n{instructions}"
+        logger.info(f"📖 Проверяем инструкции: '{instructions[:50] if instructions else 'None'}...' (тип: {type(instructions)}, длина: {len(instructions) if instructions else 0})")
         
+        if instructions and instructions.strip():
+            final_prompt = f"{base_prompt}\n\nИнструкции:\n{instructions}"
+            logger.info(f"📖 Создан системный промпт с инструкциями (размер: {len(final_prompt)} символов)")
+            logger.info(f"📖 Первые 200 символов финального промпта: '{final_prompt[:200]}...'")
+            return final_prompt
+        
+        logger.info("📖 Создан системный промпт без инструкций")
         return base_prompt
     
     def _create_user_prompt(self, input_text: str, prompt: str) -> str:

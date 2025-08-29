@@ -149,8 +149,17 @@ async def process_text(
         
         # Подготавливаем инструкции
         instructions = request.instructions_file_content
+        logger.info(f"📖 Инструкции из запроса: {instructions[:100] if instructions else 'Нет инструкций'}...")
+        logger.info(f"📖 Тип инструкций: {type(instructions)}")
+        logger.info(f"📖 Размер инструкций: {len(instructions) if instructions else 0} символов")
+        if instructions:
+            logger.info(f"📖 Первые 200 символов инструкций: '{instructions[:200]}...'")
+            logger.info(f"📖 Инструкции будут добавлены к системному промпту: '{request.system_prompt}'")
+        else:
+            logger.info(f"📖 Инструкции не предоставлены")
         
         # Обрабатываем текст
+        logger.info(f"📖 system_prompt из запроса: '{request.system_prompt}'")
         result = await ollama_service.process_text_full(
             prompt=request.text,
             input_data=input_data,
@@ -231,12 +240,13 @@ async def process_text_form(
         
         # Подготавливаем инструкции
         instructions_content = None
+        instructions_path = None
         if instructions_file:
-            instructions_path = f"/tmp/instructions_{task_id}.md"
-            with open(instructions_path, 'wb') as f:
-                f.write(await instructions_file.read())
+            content = await instructions_file.read()
+            instructions_content = content.decode('utf-8')
+            logger.info(f"📖 Инструкции из файла: {instructions_content[:100] if instructions_content else 'Нет инструкций'}...")
         else:
-            instructions_path = None
+            logger.info("📖 Файл с инструкциями не предоставлен")
         
         # Парсим параметры модели
         parsed_model_params = None
@@ -248,7 +258,7 @@ async def process_text_form(
                 logger.warning(f"⚠️ Не удалось распарсить параметры модели: {e}")
         
         # Обрабатываем текст
-        result = await ollama_service.process_text(
+        result = await ollama_service.process_text_full(
             prompt=prompt,
             input_data=input_data,
             instructions_file=instructions_path,
@@ -256,12 +266,9 @@ async def process_text_form(
             model_name=model_name,
             use_openai=use_openai,
             system_prompt=system_prompt,
-            model_params=parsed_model_params
+            model_params=parsed_model_params,
+            instructions_content=instructions_content
         )
-        
-        # Очищаем временные файлы
-        if instructions_path and os.path.exists(instructions_path):
-            os.remove(instructions_path)
         
         return result
         
