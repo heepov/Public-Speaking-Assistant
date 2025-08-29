@@ -13,7 +13,6 @@ import requests
 
 import torch
 import ollama
-from openai import OpenAI
 
 from app.core.config import settings
 from app.core.logger import setup_logger
@@ -26,7 +25,6 @@ class OllamaProcessingService:
     
     def __init__(self):
         self.ollama_client = None
-        self.openai_client = None
         self.is_initialized = False
         self.available_models = []
         self.default_model = "llama2"
@@ -75,13 +73,6 @@ class OllamaProcessingService:
             logger.info("🔧 Инициализация Ollama клиента...")
             self.ollama_client = ollama.Client(host=f"http://{self.ollama_host}")
             
-            # Проверка доступности OpenAI (опционально)
-            openai_api_key = os.environ.get("OPENAI_API_KEY")
-            if openai_api_key:
-                logger.info("🔧 Инициализация OpenAI клиента...")
-                self.openai_client = OpenAI(api_key=openai_api_key)
-                logger.info("✅ OpenAI клиент инициализирован")
-            
             # Установка модели по умолчанию если не установлена
             if not self.available_models:
                 logger.info("📥 Установка модели по умолчанию...")
@@ -125,44 +116,7 @@ class OllamaProcessingService:
             logger.error(f"❌ Ошибка при установке модели: {e}")
             raise
     
-    async def process_text(
-        self,
-        text: str,
-        model: str = "llama2",
-        system_prompt: Optional[str] = None,
-        parameters: Optional[Dict[str, Any]] = None
-    ) -> str:
-        """
-        Упрощенная обработка текста с помощью Ollama (для JSON API)
-        
-        Args:
-            text: Текст для обработки
-            model: Название модели Ollama
-            system_prompt: Системный промпт (опционально)
-            parameters: Параметры модели
-            
-        Returns:
-            Обработанный текст
-        """
-        
-        if not self.is_initialized:
-            raise RuntimeError("Сервис не инициализирован")
-        
-        try:
-            logger.info(f"🔄 Обработка текста с моделью {model}")
-            
-            # Используем системный промпт по умолчанию если не указан
-            if system_prompt is None:
-                system_prompt = self._create_default_system_prompt("")
-            
-            # Обрабатываем с помощью Ollama
-            result = await self._process_with_ollama(system_prompt, text, model, "", parameters)
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка при обработке текста: {e}")
-            raise
+
 
     async def process_text_full(
         self,
@@ -171,13 +125,12 @@ class OllamaProcessingService:
         instructions_file: Optional[str] = None,
         task_id: str = "",
         model_name: str = None,
-        use_openai: bool = False,
         system_prompt: Optional[str] = None,
         model_params: Optional[Dict[str, Any]] = None,
         instructions_content: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Обработка текста с помощью Ollama или OpenAI
+        Обработка текста с помощью Ollama
         
         Args:
             prompt: Промпт для обработки (обязательный)
@@ -185,7 +138,6 @@ class OllamaProcessingService:
             instructions_file: Путь к файлу с инструкциями (опционально)
             task_id: ID задачи
             model_name: Название модели Ollama
-            use_openai: Использовать OpenAI вместо Ollama
             system_prompt: Системный промпт (опционально, если не указан - создается автоматически)
             model_params: Параметры модели (temperature, top_p, num_predict, repeat_penalty, presence_penalty и др.)
             
@@ -197,72 +149,40 @@ class OllamaProcessingService:
             raise RuntimeError("Сервис не инициализирован")
         
         try:
-            logger.info("=" * 60)
-            logger.info(f"🔄 ОБРАБОТКА ТЕКСТА - task_id: {task_id}")
-            logger.info("=" * 60)
+            logger.info(f"🔄 Обработка текста - task_id: {task_id}")
             
             # Загрузка инструкций если указан файл или контент
             instructions = ""
             if instructions_content:
                 instructions = instructions_content
-                logger.info(f"📖 Загружены инструкции из контента")
-                logger.info(f"📖 Размер инструкций: {len(instructions)} символов")
-                logger.info(f"📖 Содержимое инструкций (первые 100 символов): '{instructions[:100]}...'")
+                logger.info(f"📖 Загружены инструкции из контента ({len(instructions)} символов)")
             elif instructions_file and Path(instructions_file).exists():
                 with open(instructions_file, 'r', encoding='utf-8') as f:
                     instructions = f.read()
-                logger.info(f"📖 Загружены инструкции из файла: {instructions_file}")
-                logger.info(f"📖 Размер инструкций: {len(instructions)} символов")
-            else:
-                logger.info("📖 Инструкции не предоставлены, используются стандартные")
-            
-            logger.info(f"📖 Финальное значение instructions: '{instructions[:50] if instructions else 'None'}...' (тип: {type(instructions)}, длина: {len(instructions) if instructions else 0})")
+                logger.info(f"📖 Загружены инструкции из файла: {instructions_file} ({len(instructions)} символов)")
             
             # Подготовка входных данных
             input_text = ""
             if input_data is not None:
                 input_text = self._prepare_input(input_data)
-                logger.info(f"📄 Размер входного текста: {len(input_text)} символов")
-            else:
-                logger.info("📄 Входные данные не предоставлены, используется только промпт")
+                logger.info(f"📄 Подготовлен входной текст ({len(input_text)} символов)")
             
             # Формирование промпта для модели
-            logger.info(f"📖 Передаем инструкции в _create_default_system_prompt: '{instructions[:50] if instructions else 'None'}...'")
-            logger.info(f"📖 system_prompt до проверки: '{system_prompt}'")
             if system_prompt is None:
                 system_prompt = self._create_default_system_prompt(instructions)
-                logger.info(f"📖 system_prompt после _create_default_system_prompt: '{system_prompt[:100]}...'")
-            else:
-                # Если system_prompt уже установлен, но есть инструкции, добавляем их
-                if instructions and instructions.strip():
-                    logger.info(f"📖 Добавляем инструкции к существующему system_prompt")
-                    system_prompt = f"{system_prompt}\n\nИнструкции:\n{instructions}"
-                    logger.info(f"📖 system_prompt с добавленными инструкциями: '{system_prompt[:100]}...'")
-                else:
-                    logger.info(f"📖 system_prompt уже установлен: '{system_prompt[:100]}...'")
+            elif instructions and instructions.strip():
+                system_prompt = f"{system_prompt}\n\nИнструкции:\n{instructions}"
+            
             user_prompt = self._create_user_prompt(input_text, prompt)
             
-            logger.info(f"💬 Размер системного промпта: {len(system_prompt)} символов")
-            logger.info(f"💬 Размер пользовательского промпта: {len(user_prompt)} символов")
-            logger.info(f"💬 Общий размер промпта: {len(system_prompt) + len(user_prompt)} символов")
-            num_ctx = (len(input_text) + (len(input_text) * 0.5))/4
-            # Выбор модели
-            if use_openai and self.openai_client:
-                logger.info("🤖 Использование OpenAI для обработки...")
-                result = await self._process_with_openai(system_prompt, user_prompt, task_id, model_params)
-                model_used = "openai-gpt-3.5-turbo"
-            else:
-                # Используем Ollama
-                model_to_use = model_name or self.default_model
-                logger.info(f"🤖 Использование Ollama модели: {model_to_use}")
-                result = await self._process_with_ollama(system_prompt, user_prompt, model_to_use, task_id, model_params, num_ctx=num_ctx)
-                model_used = model_to_use
+            # Используем Ollama
+            model_to_use = model_name or self.default_model
+            logger.info(f"🤖 Используется модель: {model_to_use}")
+            result = await self._process_with_ollama(system_prompt, user_prompt, model_to_use, task_id, model_params)
             
             # Сохранение результата
             output_path = self._save_result(result, task_id)
-            
             logger.info(f"💾 Результат сохранен: {output_path}")
-            logger.info("=" * 60)
             
             return {
                 "task_id": task_id,
@@ -270,15 +190,15 @@ class OllamaProcessingService:
                 "result": result,
                 "output_file": str(output_path),
                 "timestamp": datetime.now().isoformat(),
-                "model": model_used,
-                "service": "openai" if use_openai else "ollama"
+                "model": model_to_use,
+                "service": "ollama"
             }
             
         except Exception as e:
             logger.error(f"❌ Ошибка при обработке текста: {e}")
             raise
     
-    async def _process_with_ollama(self, system_prompt: str, user_prompt: str, model_name: str, task_id: str, model_params: Optional[Dict[str, Any]] = None, num_ctx: int = 8192) -> str:
+    async def _process_with_ollama(self, system_prompt: str, user_prompt: str, model_name: str, task_id: str, model_params: Optional[Dict[str, Any]] = None) -> str:
         """Обработка с помощью Ollama"""
         try:
             logger.info("🚀 Начинаем инференс с Ollama...")
@@ -313,31 +233,25 @@ class OllamaProcessingService:
             logger.info("=" * 80)
             
             # Подготавливаем параметры модели
+            # Вычисляем размер контекста с проверкой минимального значения
+            try:
+                calculated_ctx = int((len(full_prompt) + (len(full_prompt) * 0.5)) / 4)
+                if calculated_ctx < 8192:
+                    num_ctx = 8192
+                else:
+                    num_ctx = calculated_ctx
+                logger.info(f"🔧 Вычисленный размер контекста: {calculated_ctx}, используем: {num_ctx}")
+            except Exception as e:
+                logger.warning(f"⚠️ Ошибка при вычислении размера контекста: {e}, используем значение по умолчанию: 8192")
+                num_ctx = 8192
+            
             default_options = {
-                "temperature": 0.8,
-                "top_p": 0.9,
                 "num_predict": -1,
-                "repeat_penalty": 1.1,
-                "presence_penalty": 0.8,
                 "num_ctx": num_ctx,       # Размер контекста
-
                 # GPU оптимизация - только основные параметры
                 "num_gpu_layers": 35,  # Количество слоев на GPU
                 "num_thread": 12        # Количество CPU потоков
             }
-            
-            # Нормализуем параметры (max_tokens -> num_predict для Ollama)
-            # if model_params and 'max_tokens' in model_params:
-            #     model_params['num_predict'] = model_params.pop('max_tokens')
-            
-            # Оптимизируем параметры GPU
-            # optimized_params = self._optimize_gpu_params(model_params)
-            
-            # if optimized_params:
-            #     default_options.update(optimized_params)
-            #     logger.info(f"🔧 Используются оптимизированные параметры модели: {optimized_params}")
-            # else:
-            #     logger.info(f"🔧 Используются параметры по умолчанию: {default_options}")
             
 
             # Выполняем запрос к Ollama
@@ -369,56 +283,6 @@ class OllamaProcessingService:
         except Exception as e:
             logger.error(f"❌ Ошибка при обработке с Ollama: {e}")
             logger.error(f"🔍 Детали ошибки: {type(e).__name__}")
-            raise
-    
-    # Не используется только через API т.е платная модель
-    async def _process_with_openai(self, system_prompt: str, user_prompt: str, task_id: str, model_params: Optional[Dict[str, Any]] = None) -> str:
-        """Обработка с помощью OpenAI"""
-        try:
-            logger.info("🚀 Начинаем инференс с OpenAI...")
-            start_time = datetime.now()
-            
-            # Подготавливаем параметры модели
-            default_params = {
-                "max_tokens": 4096,
-                "temperature": 0.7,
-                "top_p": 0.9
-            }
-            
-            if model_params:
-                # Фильтруем параметры, которые поддерживает OpenAI
-                openai_supported_params = {
-                    "max_tokens", "temperature", "top_p", "frequency_penalty", 
-                    "presence_penalty", "stop", "n", "stream"
-                }
-                filtered_params = {k: v for k, v in model_params.items() if k in openai_supported_params}
-                default_params.update(filtered_params)
-                logger.info(f"🔧 Используются пользовательские параметры OpenAI: {filtered_params}")
-            else:
-                logger.info(f"🔧 Используются параметры OpenAI по умолчанию: {default_params}")
-            
-            response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                **default_params
-            )
-            
-            end_time = datetime.now()
-            inference_time = (end_time - start_time).total_seconds()
-            
-            result = response.choices[0].message.content.strip()
-            
-            logger.info(f"✅ Инференс завершен за {inference_time:.2f} секунд")
-            logger.info(f"📊 Размер результата: {len(result)} символов")
-            logger.info(f"📊 Использовано токенов: {response.usage.total_tokens}")
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка при обработке с OpenAI: {e}")
             raise
     
     def _prepare_input(self, input_data: Dict[str, Any]) -> str:
@@ -476,7 +340,6 @@ class OllamaProcessingService:
             "available_models": self.available_models,
             "default_model": self.default_model,
             "is_initialized": self.is_initialized,
-            "openai_available": self.openai_client is not None,
             "gpu_available": torch.cuda.is_available()
         }
     
@@ -493,58 +356,6 @@ class OllamaProcessingService:
             logger.error(f"❌ Ошибка при получении списка моделей: {e}")
             return []
     
-    def _optimize_gpu_params(self, model_params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Автоматическая оптимизация параметров GPU в зависимости от доступной памяти"""
-        try:
-            if not torch.cuda.is_available():
-                logger.info("🔍 GPU недоступен, используем CPU параметры")
-                return model_params or {}
-            
-            # Получаем информацию о GPU
-            gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3  # в GB
-            gpu_name = torch.cuda.get_device_name(0)
-            
-            logger.info(f"🔍 GPU: {gpu_name}, Память: {gpu_memory:.1f} GB")
-            
-            # Базовые параметры в зависимости от памяти GPU
-            if gpu_memory >= 24:  # RTX 4090, 3090
-                optimal_gpu_layers = 40
-                optimal_ctx = 8192
-                optimal_threads = 12
-            elif gpu_memory >= 16:  # RTX 4080, 3080 Ti
-                optimal_gpu_layers = 35
-                optimal_ctx = 6144
-                optimal_threads = 10
-            elif gpu_memory >= 12:  # RTX 3080, 2080 Ti
-                optimal_gpu_layers = 32
-                optimal_ctx = 4096
-                optimal_threads = 8
-            elif gpu_memory >= 8:   # RTX 3070, 2080
-                optimal_gpu_layers = 28
-                optimal_ctx = 3072
-                optimal_threads = 6
-            else:  # Меньше 8GB
-                optimal_gpu_layers = 20
-                optimal_ctx = 2048
-                optimal_threads = 4
-            
-            # Создаем оптимизированные параметры
-            optimized_params = {
-                "num_gpu_layers": optimal_gpu_layers,
-                "num_ctx": optimal_ctx,
-                "num_thread": optimal_threads
-            }
-            
-            # Объединяем с пользовательскими параметрами
-            if model_params:
-                optimized_params.update(model_params)
-            
-            logger.info(f"🔧 Оптимизированные GPU параметры: {optimized_params}")
-            return optimized_params
-            
-        except Exception as e:
-            logger.warning(f"⚠️ Не удалось оптимизировать GPU параметры: {e}")
-            return model_params or {}
     
     async def install_model(self, model_name: str) -> bool:
         """Установка модели"""

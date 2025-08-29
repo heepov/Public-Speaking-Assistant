@@ -111,7 +111,7 @@ async def startup_event():
 
 
 @app.post("/process")
-async def process_text(
+async def process_text_endpoint(
     request: ProcessRequest
 ):
     """
@@ -166,7 +166,6 @@ async def process_text(
             instructions_file=None,
             task_id=request.task_id,
             model_name=request.model,
-            use_openai=False,
             system_prompt=request.system_prompt,
             model_params=parameters,
             instructions_content=request.instructions_file_content
@@ -203,18 +202,17 @@ async def process_text(
         }
 
 @app.post("/process/form")
-async def process_text_form(
+async def process_text_form_endpoint(
     prompt: str = Form(...),
     input_file: Optional[UploadFile] = File(None),
     task_id: str = Form(...),
     instructions_file: Optional[UploadFile] = File(None),
     model_name: str = Form("llama2"),
-    use_openai: bool = Form(False),
     system_prompt: Optional[str] = Form(None),
     model_params: Optional[str] = Form(None)
 ):
     """
-    Обработка текста с помощью Ollama или OpenAI
+    Обработка текста с помощью Ollama
     Автоматически загружает модель если она не установлена
     """
     try:
@@ -226,8 +224,7 @@ async def process_text_form(
             await ollama_service.initialize()
         
         # Проверяем и загружаем модель если нужно
-        if not use_openai:
-            await ensure_model_available(model_name)
+        await ensure_model_available(model_name)
         
         # Подготавливаем входные данные
         input_data = None
@@ -264,7 +261,6 @@ async def process_text_form(
             instructions_file=instructions_path,
             task_id=task_id,
             model_name=model_name,
-            use_openai=use_openai,
             system_prompt=system_prompt,
             model_params=parsed_model_params,
             instructions_content=instructions_content
@@ -289,7 +285,6 @@ async def process_json_data(
     task_id: str = Form(...),
     instructions_file: Optional[UploadFile] = File(None),
     model_name: str = Form("llama2"),
-    use_openai: bool = Form(False),
     system_prompt: Optional[str] = Form(None),
     model_params: Optional[str] = Form(None)
 ):
@@ -302,7 +297,6 @@ async def process_json_data(
         task_id: ID задачи
         instructions_file: Файл с инструкциями (опционально)
         model_name: Название модели Ollama
-        use_openai: Использовать OpenAI вместо Ollama
         
     Returns:
         JSON с результатами обработки
@@ -333,13 +327,12 @@ async def process_json_data(
                 logger.warning(f"⚠️ Не удалось распарсить параметры модели: {e}")
         
         # Выполнение обработки
-        results = await ollama_service.process_text(
+        results = await ollama_service.process_text_full(
             prompt=prompt,
             input_data=data,
             instructions_file=str(instructions_path) if instructions_path else None,
             task_id=task_id,
             model_name=model_name,
-            use_openai=use_openai,
             system_prompt=system_prompt,
             model_params=parsed_model_params
         )
@@ -389,21 +382,6 @@ async def install_model(model_name: str = Form(...)):
         raise HTTPException(status_code=500, detail=f"Ошибка установки модели: {str(e)}")
 
 
-async def _load_input_data(file_path: Path) -> Any:
-    """Загрузка входных данных из файла"""
-    file_extension = file_path.suffix.lower()
-    
-    if file_extension == '.json':
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    elif file_extension in ['.txt', '.md']:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return f.read()
-    else:
-        # Для других форматов читаем как текст
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return f.read()
-
 
 @app.get("/health")
 async def health_check():
@@ -448,15 +426,6 @@ async def health_check():
             "error": str(e),
             "timestamp": datetime.now().isoformat()
         }
-
-
-@app.get("/model-info")
-async def get_model_info():
-    """Получение информации о модели"""
-    if ollama_service:
-        return ollama_service.get_model_info()
-    else:
-        raise HTTPException(status_code=503, detail="Сервис не инициализирован")
 
 
 @app.get("/models")
